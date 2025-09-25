@@ -169,7 +169,7 @@ class FeedbackService:
                 keywords = []
             
             feedback_data = {
-                "chapter": item.chapter,
+                "document": item.document,
                 "section": item.section,
                 "feedback": item.feedback,
                 "translated_feedback": translated_feedback,

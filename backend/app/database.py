@@ -25,7 +25,7 @@ async def create_feedback_table(pool):
         await connection.execute("""
             CREATE TABLE IF NOT EXISTS feedback (
                 id SERIAL PRIMARY KEY,
-                chapter TEXT NOT NULL,
+                document TEXT NOT NULL,
                 section TEXT NOT NULL,
                 feedback TEXT NOT NULL,
                 translated_feedback TEXT,
@@ -38,8 +38,8 @@ async def create_feedback_table(pool):
         
         # Create indexes for better performance
         await connection.execute("""
-            CREATE INDEX IF NOT EXISTS idx_feedback_chapter_section 
-            ON feedback(chapter, section)
+            CREATE INDEX IF NOT EXISTS idx_feedback_document_section 
+            ON feedback(document, section)
         """)
         
         await connection.execute("""
@@ -58,12 +58,12 @@ async def insert_feedback(pool, data: Dict[str, Union[str, List[str]]]):
         async with connection.transaction():
             await connection.execute("""
                 INSERT INTO feedback (
-                    chapter, section, feedback, translated_feedback, 
+                    document, section, feedback, translated_feedback, 
                     summary, sentiment, keywords
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
             """,
-            data["chapter"],
+            data["document"],
             data["section"],
             data["feedback"],
             data["translated_feedback"],
