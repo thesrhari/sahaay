@@ -55,6 +55,36 @@ import {
 import WordCloud from "@/components/WordCloud";
 import EditDialog from "@/components/EditDialog";
 
+// Helper component for expandable text
+const ExpandableText: React.FC<{ text: string; maxLength?: number }> = ({
+  text,
+  maxLength = 100, // Default to 100 characters
+}) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  // Return plain text if it's not long enough to be truncated
+  if (text.length <= maxLength) {
+    return <p className="text-sm">{text}</p>;
+  }
+
+  // Render expandable text with a "Read More/Less" button
+  return (
+    <div>
+      <p className="text-sm">
+        {isExpanded ? text : `${text.substring(0, maxLength)}...`}
+      </p>
+      <Button
+        variant="link"
+        size="sm"
+        className="px-0 h-auto text-xs" // Styling for a subtle link-like button
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        {isExpanded ? "Read Less" : "Read More"}
+      </Button>
+    </div>
+  );
+};
+
 // Main Dashboard Component
 const SahaayDashboard: React.FC = () => {
   // Core Data State
@@ -292,13 +322,13 @@ const SahaayDashboard: React.FC = () => {
                   value={selectedDocument}
                   onValueChange={handleDocumentChange}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full [&>span]:truncate">
                     <SelectValue placeholder="Select document..." />
                   </SelectTrigger>
                   <SelectContent>
                     {documents.map((doc) => (
                       <SelectItem key={doc.id} value={doc.id}>
-                        {doc.name}
+                        <span className="truncate">{doc.name}</span>
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -313,14 +343,14 @@ const SahaayDashboard: React.FC = () => {
                   onValueChange={handleSectionChange}
                   disabled={!selectedDocument || sections.length === 0}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full [&>span]:truncate">
                     <SelectValue placeholder="Select section..." />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Sections</SelectItem>
                     {sections.map((sec) => (
                       <SelectItem key={sec.id} value={sec.id}>
-                        {sec.name}
+                        <span className="truncate">{sec.name}</span>
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -501,7 +531,7 @@ const SahaayDashboard: React.FC = () => {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
-              <span>Public Comments</span>
+              <span>Freedback</span>
               <div className="flex items-center gap-2 text-sm font-normal text-neutral">
                 <Users className="w-4 h-4" />
                 {totalCount} total comments
@@ -553,14 +583,10 @@ const SahaayDashboard: React.FC = () => {
                             {item.id}
                           </td>
                           <td className="py-4 px-2 max-w-xs">
-                            <p className="text-sm line-clamp-3">
-                              {item.feedback}
-                            </p>
+                            <ExpandableText text={item.feedback} />
                           </td>
                           <td className="py-4 px-2 max-w-xs">
-                            <p className="text-sm line-clamp-3">
-                              {item.summary}
-                            </p>
+                            <ExpandableText text={item.summary} />
                           </td>
                           <td className="py-4 px-2">
                             <Badge
