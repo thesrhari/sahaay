@@ -10,7 +10,6 @@ class TextItem(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Manages application startup and shutdown events."""
     # Startup
     await feedback_service.initialize_database()
     yield
@@ -22,10 +21,6 @@ app = FastAPI(lifespan=lifespan)
 
 @app.post("/", status_code=status.HTTP_201_CREATED)
 async def process_feedback(item: TextItem):
-    """
-    Receives feedback, processes it, and stores it in the database.
-    Returns a 201 status code on success.
-    """
     success = await feedback_service.process_and_store_feedback(item)
 
     if not success:

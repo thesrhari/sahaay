@@ -41,7 +41,6 @@ class FeedbackService:
         self.executor = None
 
     async def initialize_database(self):
-        """Initializes the database connection and creates the table."""
         self.db_pool = await connect_to_db()
         await create_feedback_table(self.db_pool)
         
@@ -50,7 +49,6 @@ class FeedbackService:
         self.executor = ThreadPoolExecutor(max_workers=2)
 
     def _generate(self, prompt: str) -> str:
-        """Optimized generation function."""
         messages = [
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": prompt}
