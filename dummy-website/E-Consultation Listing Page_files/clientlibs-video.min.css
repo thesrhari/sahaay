@@ -1,0 +1,23 @@
+.secondary-header.d-flex.mb-3.justify-content-between{margin-top:-1.75rem}
+.btn.btn-default.app-history{padding:0 12px 3px 12px;display:none}
+#eConsultation-video{border-radius:5px}
+#videoComponentHidden{background-color:#e5e7eb;padding:14px}
+#videoComponent p{font-size:18px;line-height:28px;font-family:'Poppins';font-weight:400;color:#333}
+#videoComponent .e-con-heading p{margin-bottom:0;font-size:24px;line-height:35px;font-family:'Poppins';font-weight:600;color:#0f284a}
+#videoComponentHidden .con-heading p{font-size:18px;line-height:27px;font-family:'Poppins';font-weight:600;color:#333;margin-bottom:0}
+#videoComponent .inlineHr{display:inline-block;border-top:3px solid #ff8000}
+#videoComponent .hr1{margin-top:8px;width:105px}
+#videoComponent .hr2{margin-top:8px;width:25px;margin-left:5px}
+#videoComponent .hr3{margin-top:8px;width:12px;margin-left:5px}
+#videoComponent #hide-video,#videoComponentHidden #show-video{border:1px solid #1592e6;border-radius:5px;background-color:inherit;font-family:'Poppins';font-weight:400;font-size:14px;line-height:28px;color:#1592e6;padding:0 26px}
+#videoComponent #hide-video:hover,#videoComponentHidden #show-video:hover{background:#1592e6;color:white}
+.right-align{float:right}
+.button-align{position:absolute;bottom:0;right:0;padding-right:15px}
+#videoComponentHidden{display:none}
+.align-inline{display:inline-block}
+@media only screen and (max-width:600px){#videoComponent .e-con-heading{padding-top:15px}
+#videoComponent .inlineHr{margin-bottom:0}
+#videoComponentHidden{height:85px}
+}
+@media all and (min-width:768px) and (max-width:991px){#videoComponent .e-con-heading{padding-top:15px}
+}

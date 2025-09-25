@@ -1,103 +1,660 @@
-import Image from "next/image";
+"use client";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 
-export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+// UI Components from ShadCN/UI
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+// Icons from lucide-react
+import {
+  ChevronLeft,
+  ChevronRight,
+  Edit3,
+  Filter,
+  BarChart3,
+  MessageSquare,
+  TrendingUp,
+  AlertCircle,
+  Loader2,
+  Users,
+} from "lucide-react";
+
+// Charting Library
+import {
+  PieChart,
+  Pie,
+  Cell,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
+
+// Custom Components and Services
+import { apiService } from "@/services/api";
+import {
+  Feedback,
+  Document,
+  Section,
+  Analytics,
+  SentimentData,
+  KeywordData,
+} from "@/types/types";
+import WordCloud from "@/components/WordCloud";
+import EditDialog from "@/components/EditDialog";
+
+// Main Dashboard Component
+const SahaayDashboard: React.FC = () => {
+  // Core Data State
+  const [feedback, setFeedback] = useState<Feedback[]>([]);
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [sections, setSections] = useState<Section[]>([]);
+  const [analytics, setAnalytics] = useState<Analytics | null>(null);
+
+  // UI/UX State
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Filters State
+  const [selectedDocument, setSelectedDocument] = useState("");
+  const [selectedSection, setSelectedSection] = useState("");
+  const [selectedSentiment, setSelectedSentiment] = useState("ALL");
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(5);
+  const [totalCount, setTotalCount] = useState(0);
+
+  // Dialog State
+  const [editingFeedback, setEditingFeedback] = useState<Feedback | null>(null);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+
+  // Data Fetching Logic
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      // Documents are fetched once to populate the filter
+      const documentsData = await apiService.fetchDocuments();
+      setDocuments(documentsData);
+
+      const currentDoc =
+        selectedDocument ||
+        (documentsData.length > 0 ? documentsData[0].id : "");
+      if (!selectedDocument && currentDoc) {
+        setSelectedDocument(currentDoc);
+      }
+
+      const filters = {
+        document: currentDoc,
+        section: selectedSection,
+        sentiment:
+          selectedSentiment === "ALL" ? "" : selectedSentiment.toLowerCase(),
+        page: currentPage,
+        limit: pageSize,
+      };
+
+      const [feedbackResponse, analyticsData] = await Promise.all([
+        apiService.fetchFeedback(filters),
+        apiService.getAnalytics(filters),
+      ]);
+
+      setFeedback(feedbackResponse.data || []);
+      setTotalCount(feedbackResponse.total || 0);
+      setAnalytics(analyticsData);
+    } catch (err: any) {
+      setError(err.message);
+      console.error("Error fetching data:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [
+    selectedDocument,
+    selectedSection,
+    selectedSentiment,
+    currentPage,
+    pageSize,
+  ]);
+
+  const fetchSectionsForDocument = useCallback(async (documentId: string) => {
+    if (!documentId) {
+      setSections([]);
+      return;
+    }
+    try {
+      const sectionsData = await apiService.fetchSections(documentId);
+      setSections(sectionsData);
+    } catch (err) {
+      console.error("Error fetching sections:", err);
+      setSections([]); // Reset on error
+    }
+  }, []);
+
+  // Effects to trigger data fetching
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  useEffect(() => {
+    if (selectedDocument) {
+      fetchSectionsForDocument(selectedDocument);
+      setSelectedSection(""); // Reset section filter when document changes
+    }
+  }, [selectedDocument, fetchSectionsForDocument]);
+
+  // Event Handlers
+  const handleDocumentChange = (documentId: string) => {
+    setSelectedDocument(documentId);
+    setCurrentPage(1);
+  };
+
+  const handleSectionChange = (sectionId: string) => {
+    setSelectedSection(sectionId);
+    setCurrentPage(1);
+  };
+
+  const handleSentimentFilter = (sentiment: string) => {
+    setSelectedSentiment(sentiment);
+    setCurrentPage(1);
+  };
+
+  const handleEditFeedback = (feedbackItem: Feedback) => {
+    setEditingFeedback(feedbackItem);
+    setIsEditDialogOpen(true);
+  };
+
+  const handleSaveFeedback = async (id: string, updates: Partial<Feedback>) => {
+    await apiService.updateFeedback(id, updates);
+    // Refresh all data to ensure consistency across analytics and the feedback list
+    fetchData();
+  };
+
+  // Memoized values for chart data transformation
+  const totalPages = Math.ceil(totalCount / pageSize);
+
+  const sentimentChartData = useMemo<SentimentData[]>(() => {
+    if (!analytics) return [];
+    return [
+      {
+        name: "Positive",
+        value: analytics.positive || 0,
+        color: "var(--sentiment-positive)",
+      },
+      {
+        name: "Negative",
+        value: analytics.negative || 0,
+        color: "var(--sentiment-negative)",
+      },
+      {
+        name: "Neutral",
+        value: analytics.neutral || 0,
+        color: "var(--sentiment-neutral)",
+      },
+    ].filter((item) => item.value > 0);
+  }, [analytics]);
+
+  const keywordChartData = useMemo<KeywordData[]>(() => {
+    if (!analytics?.keywords) return [];
+    return Object.entries(analytics.keywords)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 10)
+      .map(([keyword, count]) => ({ keyword, count }));
+  }, [analytics]);
+
+  const allKeywordsForCloud = useMemo(() => {
+    return feedback.flatMap((item) => item.keywords || []);
+  }, [feedback]);
+
+  // Conditional Rendering for Loading and Error States
+  if (isLoading && feedback.length === 0) {
+    return (
+      <div className="min-h-screen bg-light flex items-center justify-center">
+        <div className="text-center text-neutral">
+          <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-[color:var(--primary)]" />
+          <p>Loading dashboard data...</p>
         </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-light flex items-center justify-center p-4">
+        <Card className="max-w-md w-full">
+          <CardContent className="pt-6">
+            <div className="text-center">
+              <AlertCircle className="w-12 h-12 mx-auto mb-4 text-[color:var(--danger)]" />
+              <h3 className="text-lg font-semibold mb-2">Error Loading Data</h3>
+              <p className="text-neutral mb-4">{error}</p>
+              <Button onClick={fetchData}>Try Again</Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Main Dashboard JSX
+  return (
+    <div className="min-h-screen bg-light">
+      {/* Header */}
+      <header className="bg-white border-b shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center space-x-4">
+              <div className="w-10 h-10 bg-[color:var(--primary)] rounded-lg flex items-center justify-center">
+                <span className="text-white font-bold text-sm">MCA</span>
+              </div>
+              <div>
+                <h1 className="text-xl font-bold">SAHAAY</h1>
+                <p className="text-sm text-neutral">
+                  Public Consultation Analysis
+                </p>
+              </div>
+            </div>
+            <div className="text-right">
+              <p className="text-sm text-neutral">
+                Ministry of Corporate Affairs
+              </p>
+              <p className="text-xs text-neutral/80">Government of India</p>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Filters */}
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Filter className="w-5 h-5" /> Filters
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label className="text-sm font-medium mb-2 block">
+                  Document
+                </Label>
+                <Select
+                  value={selectedDocument}
+                  onValueChange={handleDocumentChange}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select document..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {documents.map((doc) => (
+                      <SelectItem key={doc.id} value={doc.id}>
+                        {doc.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-sm font-medium mb-2 block">
+                  Section
+                </Label>
+                <Select
+                  value={selectedSection}
+                  onValueChange={handleSectionChange}
+                  disabled={!selectedDocument || sections.length === 0}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select section..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Sections</SelectItem>
+                    {sections.map((sec) => (
+                      <SelectItem key={sec.id} value={sec.id}>
+                        {sec.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-sm font-medium mb-2 block">
+                  Sentiment
+                </Label>
+                <div className="flex gap-2">
+                  {["ALL", "POSITIVE", "NEGATIVE", "NEUTRAL"].map((s) => (
+                    <Button
+                      key={s}
+                      variant={selectedSentiment === s ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => handleSentimentFilter(s)}
+                    >
+                      {s}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Analytics & Charts */}
+        {analytics && (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-neutral">Total Comments</p>
+                      <p className="text-2xl font-bold">
+                        {analytics.total || 0}
+                      </p>
+                    </div>
+                    <MessageSquare className="w-8 h-8 text-[color:var(--primary)]" />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-neutral">Overall Sentiment</p>
+                      <p className="text-2xl font-bold">
+                        {analytics.overallSentiment || "Mixed"}
+                      </p>
+                    </div>
+                    <TrendingUp className="w-8 h-8 text-[color:var(--accent)]" />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-neutral">Positive</p>
+                      <p className="text-2xl font-bold text-[color:var(--accent)]">
+                        {analytics.positive || 0}{" "}
+                        <span className="text-sm">
+                          (
+                          {analytics.total > 0
+                            ? Math.round(
+                                (analytics.positive / analytics.total) * 100
+                              )
+                            : 0}
+                          %)
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-neutral">Negative</p>
+                      <p className="text-2xl font-bold text-[color:var(--danger)]">
+                        {analytics.negative || 0}{" "}
+                        <span className="text-sm">
+                          (
+                          {analytics.total > 0
+                            ? Math.round(
+                                (analytics.negative / analytics.total) * 100
+                              )
+                            : 0}
+                          %)
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Sentiment Distribution</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-64">
+                    {sentimentChartData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={sentimentChartData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={60}
+                            outerRadius={100}
+                            paddingAngle={5}
+                            dataKey="value"
+                            // By typing the props parameter as 'any', we bypass the incorrect type definition.
+                            // This allows us to destructure 'name' and 'percent', which are present at runtime.
+                            label={({ name, percent }: any) =>
+                              `${name} ${(percent * 100).toFixed(0)}%`
+                            }
+                          >
+                            {sentimentChartData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-neutral">
+                        <BarChart3 className="w-8 h-8 mr-2" />
+                        No data available
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Keyword Cloud</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <WordCloud keywords={allKeywordsForCloud} />
+                </CardContent>
+              </Card>
+            </div>
+
+            {keywordChartData.length > 0 && (
+              <Card className="mb-8">
+                <CardHeader>
+                  <CardTitle>Top Keywords</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={keywordChartData}
+                        margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="keyword" />
+                        <YAxis />
+                        <Tooltip />
+                        <Bar dataKey="count" fill="var(--primary)" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </>
+        )}
+
+        {/* Feedback Table */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+              <span>Public Comments</span>
+              <div className="flex items-center gap-2 text-sm font-normal text-neutral">
+                <Users className="w-4 h-4" />
+                {totalCount} total comments
+              </div>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {feedback.length === 0 ? (
+              <div className="text-center py-12 text-neutral">
+                <MessageSquare className="w-12 h-12 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-black mb-2">
+                  No Comments Found
+                </h3>
+                <p>Try adjusting your filters to see more results.</p>
+              </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-3 px-2 font-medium">
+                          Comment ID
+                        </th>
+                        <th className="text-left py-3 px-2 font-medium">
+                          Comment Text
+                        </th>
+                        <th className="text-left py-3 px-2 font-medium">
+                          AI Summary
+                        </th>
+                        <th className="text-left py-3 px-2 font-medium">
+                          Sentiment
+                        </th>
+                        <th className="text-left py-3 px-2 font-medium">
+                          Clause
+                        </th>
+                        <th className="text-left py-3 px-2 font-medium">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {feedback.map((item) => (
+                        <tr
+                          key={item.id}
+                          className="border-b hover:bg-gray-50/50"
+                        >
+                          <td className="py-4 px-2 font-medium text-[color:var(--primary)]">
+                            {item.id}
+                          </td>
+                          <td className="py-4 px-2 max-w-xs">
+                            <p className="text-sm line-clamp-3">
+                              {item.feedback}
+                            </p>
+                          </td>
+                          <td className="py-4 px-2 max-w-xs">
+                            <p className="text-sm line-clamp-3">
+                              {item.summary}
+                            </p>
+                          </td>
+                          <td className="py-4 px-2">
+                            <Badge
+                              variant={
+                                item.sentiment === "positive"
+                                  ? "default"
+                                  : item.sentiment === "negative"
+                                  ? "destructive"
+                                  : "secondary"
+                              }
+                            >
+                              {item.sentiment}
+                            </Badge>
+                          </td>
+                          <td className="py-4 px-2 text-sm">
+                            <p className="font-medium">{item.section}</p>
+                            <p className="text-neutral text-xs">
+                              {item.document}
+                            </p>
+                          </td>
+                          <td className="py-4 px-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleEditFeedback(item)}
+                            >
+                              <Edit3 className="w-4 h-4 mr-1" /> Correct
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination */}
+                <div className="flex items-center justify-between mt-6">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-neutral">Rows:</span>
+                    <Select
+                      value={pageSize.toString()}
+                      onValueChange={(v) => setPageSize(Number(v))}
+                    >
+                      <SelectTrigger className="w-20">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[5, 10, 25, 50].map((p) => (
+                          <SelectItem key={p} value={p.toString()}>
+                            {p}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-neutral">
+                      {Math.min((currentPage - 1) * pageSize + 1, totalCount)}-
+                      {Math.min(currentPage * pageSize, totalCount)} of{" "}
+                      {totalCount}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage((p) => p - 1)}
+                      disabled={currentPage === 1}
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage((p) => p + 1)}
+                      disabled={currentPage === totalPages}
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+
+      {/* Edit Dialog */}
+      <EditDialog
+        isOpen={isEditDialogOpen}
+        onClose={() => setIsEditDialogOpen(false)}
+        feedback={editingFeedback}
+        onSave={handleSaveFeedback}
+      />
     </div>
   );
-}
+};
+
+export default SahaayDashboard;

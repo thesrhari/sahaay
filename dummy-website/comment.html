@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en" style="font-size: 16px;">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <title>E-Consultation Comments</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="shortcut icon" type="image/jpg" href="/E-Consultation%20Listing%20Page_files/favicon_1.png">
+    <style>
+        /* All styles remain the same */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Poppins', 'Arial', sans-serif; background-color: #f5f5f5; color: #333; }
+        .top-bar { background-color: #1e3a5f; color: white; padding: 8px 0; font-size: 12px; }
+        .top-bar-content { max-width: 1200px; margin: 0 auto; padding: 0 20px; display: flex; justify-content: space-between; align-items: center; }
+        .top-bar a { color: white; text-decoration: none; }
+        .top-bar-left, .top-bar-right { display: flex; gap: 20px; align-items: center; }
+        .main-header { background-color: white; padding: 20px 0; border-bottom: 1px solid #ddd; }
+        .main-header-content { max-width: 1200px; margin: 0 auto; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; }
+        .ministry-info h1 { color: #1e3a5f; font-size: 24px; font-weight: bold; }
+        .ministry-info .tagline { font-size: 14px; color: #666; }
+        .main-nav { background-color: #127ABF; }
+        .nav-content { max-width: 1200px; margin: 0 auto; display: flex; }
+        .nav-item { padding: 14px 20px; color: white; text-decoration: none; font-size: 14px; border-right: 1px solid rgba(255,255,255,0.2); transition: background-color 0.3s; }
+        .nav-item:hover { background-color: rgba(255,255,255,0.1); }
+        .nav-item.active { background-color: #0D5A8F; }
+        .breadcrumb { background-color: #f8f9fa; padding: 12px 0; font-size: 12px; color: #666; border-bottom: 1px solid #e9ecef; }
+        .breadcrumb-content { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+        .breadcrumb a { color: #127ABF; text-decoration: none; }
+        .container { max-width: 1200px; margin: 20px auto; padding: 20px; background-color: white; border: 1px solid #e9ecef; border-radius: 8px; }
+        .page-header { border-bottom: 2px solid #127ABF; margin-bottom: 20px; padding-bottom: 10px; }
+        .page-header h1 { color: #333; font-size: 24px; margin: 0; }
+        .document-section { background-color: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; margin-bottom: 30px; }
+        .document-header { background-color: #1e3a5f; color: white; padding: 15px 20px; font-size: 16px; font-weight: bold; border-radius: 8px 8px 0 0; }
+        .document-content { padding: 10px; max-height: 400px; overflow-y: auto; line-height: 1.6; }
+        .document-clause { margin: 10px; padding: 15px; background-color: white; border-radius: 5px; border-left: 4px solid #127ABF; cursor: pointer; transition: all 0.2s ease; }
+        .document-clause:hover { background-color: #e8f4fd; border-left-color: #0D5A8F; }
+        .document-clause.selected { background-color: #d4edda; border-left-color: #28a745; }
+        .clause-number { font-weight: bold; color: #1e3a5f; font-size: 14px; margin-bottom: 8px; }
+        .clause-content { color: #333; font-size: 14px; }
+        .comment-section, .saved-comments, .final-submit { background-color: white; border: 1px solid #e9ecef; border-radius: 8px; padding: 20px; margin-bottom: 30px; }
+        .comment-section h2 { font-size: 20px; color: #333; margin-bottom: 20px; border-bottom: 2px solid #127ABF; padding-bottom: 10px; }
+        .saved-comments-header { background-color: #28a745; color: white; padding: 15px 20px; font-size: 16px; font-weight: bold; border-radius: 8px 8px 0 0; }
+        .saved-comments-content { padding: 20px 0 0 0; }
+        .form-group label { display: block; margin-bottom: 8px; font-weight: bold; font-size: 14px; color: #333; }
+        .form-control { width: 100%; padding: 10px 15px; border: 2px solid #ddd; border-radius: 4px; font-size: 14px; font-family: inherit; }
+        .form-control:focus { border-color: #127ABF; box-shadow: none; outline: none; }
+        .section-selector { display: none; } /* Initially hidden */
+        .section-selector.show { display: block; } /* Made visible by JS */
+        .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: bold; transition: background-color 0.2s; margin-right: 10px; }
+        .btn-primary { background-color: #127ABF; color: white; }
+        .btn-primary:hover { background-color: #0D5A8F; }
+        .btn-secondary { background-color: #6c757d; color: white; }
+        .btn-secondary:hover { background-color: #5a6268; }
+        .btn-success { background-color: #28a745; color: white; }
+        .btn-success:hover { background-color: #218838; }
+        .btn-danger { background-color: #dc3545; color: white; } /* NEW STYLE */
+        .btn-danger:hover { background-color: #c82333; } /* NEW STYLE */
+        .btn-sm { padding: 5px 10px; font-size: 12px; } /* NEW STYLE */
+        .btn:disabled { background-color: #6c757d; cursor: not-allowed; opacity: 0.65; }
+        .final-submit { background-color: #e8f4fd; border: 1px solid #127ABF; text-align: center; }
+        .comment-type-selector, .section-selector, .form-group { margin-bottom: 20px; }
+        .success-message, .warning-message { padding: 15px; border-radius: 4px; margin-bottom: 20px; display: none; font-size: 14px; }
+        .success-message { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .warning-message { background-color: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+        .saved-comment-item { background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; padding: 15px; margin-bottom: 15px; }
+        .comment-meta { font-size: 12px; color: #666; margin-bottom: 10px; line-height: 1.6; }
+        .comment-actions { margin-top: 15px; text-align: right; } /* NEW STYLE */
+        .no-comments { text-align: center; color: #6c757d; padding: 20px; }
+    </style>
+</head>
+<body>
+    <div class="top-bar"><div class="top-bar-content"><div class="top-bar-left"><a href="#">Skip to Main Content</a><a href="#">Sitemap</a></div><div class="top-bar-right"><span>Theme: Light</span><span>Font Size: A</span><span>Language: English</span><a href="#">Sign In/Sign Up</a></div></div></div>
+    <div class="main-header"><div class="main-header-content"><div class="ministry-info"><h1>MINISTRY OF CORPORATE AFFAIRS</h1><div class="tagline">GOVERNMENT OF INDIA</div></div></div></div>
+    <nav class="main-nav"><div class="nav-content"><a href="#" class="nav-item">Home</a><a href="#" class="nav-item">About MCA</a><a href="#" class="nav-item">Acts & Rules</a><a href="#" class="nav-item active">Additional Services</a><a href="#" class="nav-item">Data & Reports</a><a href="#" class="nav-item">Contact Us</a></div></nav>
+    <div class="breadcrumb"><div class="breadcrumb-content"><a href="#">Home</a> > <a href="#">Additional Services</a> > <a href="#">E-Consultation</a> > <strong>Document Review</strong></div></div>
+
+    <div class="container">
+        <div class="page-header">
+            <h1>Establishment of Indian Multi-Disciplinary Partnership (MDP) firms</h1>
+        </div>
+
+        <div class="document-section">
+            <div class="document-header">Consultation Document - Proposed Changes</div>
+            <div class="document-content" id="document-content">
+                <div class="document-clause" data-clause="1"><div class="clause-number">1. Introduction and Background</div><div class="clause-content">The Government of India is considering...</div></div>
+                <div class="document-clause" data-clause="2"><div class="clause-number">2. Scope and Applicability</div><div class="clause-content">The proposed MDP framework will apply...</div></div>
+                <div class="document-clause" data-clause="3"><div class="clause-number">3. Regulatory Framework</div><div class="clause-content">A new regulatory body will be established...</div></div>
+                <div class="document-clause" data-clause="4"><div class="clause-number">4. Licensing and Registration</div><div class="clause-content">MDP firms must obtain licenses...</div></div>
+                <div class="document-clause" data-clause="5"><div class="clause-number">5. Professional Standards and Ethics</div><div class="clause-content">All professionals within MDP firms must adhere...</div></div>
+                <div class="document-clause" data-clause="6"><div class="clause-number">6. Implementation Timeline</div><div class="clause-content">The proposed implementation will be phased...</div></div>
+            </div>
+        </div>
+
+        <div class="comment-section">
+            <h2>Submit Your Comments</h2>
+            <div class="success-message" id="success-message"></div>
+            <div class="warning-message" id="warning-message"></div>
+            
+            <div class="comment-type-selector">
+                <label><input type="radio" name="comment-type" value="document" checked> Comment on Entire Document</label>
+                <label><input type="radio" name="comment-type" value="clause"> Comment on Specific Section</label>
+            </div>
+            
+            <div class="section-selector" id="section-selector">
+                <div class="form-group">
+                    <label for="section-dropdown">Select Section:</label>
+                    <select class="form-control" id="section-dropdown" disabled>
+                        <option value="">-- Select a Section --</option>
+                        <option value="1">1. Introduction and Background</option>
+                        <option value="2">2. Scope and Applicability</option>
+                        <option value="3">3. Regulatory Framework</option>
+                        <option value="4">4. Licensing and Registration</option>
+                        <option value="5">5. Professional Standards and Ethics</option>
+                        <option value="6">6. Implementation Timeline</option>
+                    </select>
+                </div>
+            </div>
+            
+            <form id="comment-form">
+                <div class="form-group">
+                    <label for="comment-text">Your Comment:</label>
+                    <textarea class="form-control" id="comment-text" name="comment" rows="4" required placeholder="Please share your detailed feedback..."></textarea>
+                </div>
+                <button type="button" class="btn btn-primary" id="save-comment">Save Comment</button>
+                <button type="button" class="btn btn-secondary" id="clear-comment">Clear</button>
+            </form>
+        </div>
+
+        <div class="saved-comments">
+            <div class="saved-comments-header">Your Saved Comments (<span id="comment-count">0</span>)</div>
+            <div class="saved-comments-content">
+                <div id="saved-comments-list" class="no-comments">No comments saved yet.</div>
+            </div>
+        </div>
+
+        <div class="final-submit">
+            <h3>Ready to Submit All Comments?</h3>
+            <p style="font-size: 14px; color: #666; margin-bottom: 20px;">Once you submit, comments cannot be modified.</p>
+            <button type="button" class="btn btn-success" id="submit-all-comments" disabled>Submit All Comments for Review</button>
+        </div>
+    </div>
+
+    <script>
+        let savedComments = [];
+        let editingCommentId = null; // NEW: To track which comment is being edited
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const commentTypeRadios = document.querySelectorAll('input[name="comment-type"]');
+            const sectionSelector = document.getElementById('section-selector');
+            const sectionDropdown = document.getElementById('section-dropdown');
+            const documentClauses = document.querySelectorAll('.document-clause');
+            const commentTextArea = document.getElementById('comment-text');
+            const saveCommentBtn = document.getElementById('save-comment');
+            const clearCommentBtn = document.getElementById('clear-comment');
+            const submitAllBtn = document.getElementById('submit-all-comments');
+            const successMessage = document.getElementById('success-message');
+            const warningMessage = document.getElementById('warning-message');
+            const savedCommentsList = document.getElementById('saved-comments-list');
+            const commentCount = document.getElementById('comment-count');
+            
+            commentTypeRadios.forEach(radio => {
+                radio.addEventListener('change', (e) => {
+                    if (e.target.value === 'clause') {
+                        sectionSelector.classList.add('show');
+                        sectionDropdown.disabled = false;
+                    } else {
+                        sectionSelector.classList.remove('show');
+                        sectionDropdown.disabled = true;
+                        sectionDropdown.value = '';
+                    }
+                });
+            });
+            
+            sectionDropdown.addEventListener('change', (e) => {
+                const selectedValue = e.target.value;
+                documentClauses.forEach(clause => clause.classList.remove('selected'));
+                if (selectedValue) {
+                    const selectedClauseEl = document.querySelector(`[data-clause="${selectedValue}"]`);
+                    if (selectedClauseEl) {
+                        selectedClauseEl.classList.add('selected');
+                        selectedClauseEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }
+            });
+
+            const documentName = 'Establishment of Indian Multi-Disciplinary Partnership (MDP) firms by the Govt of India';
+            const documentId = 'MDP-2025-001';
+
+            saveCommentBtn.addEventListener('click', () => {
+                const commentText = commentTextArea.value.trim();
+                const commentType = document.querySelector('input[name="comment-type"]:checked').value;
+
+                if (!commentText) {
+                    showWarning('Please enter your comment before saving.');
+                    return;
+                }
+
+                let clauseId = null;
+                let clauseTitle = null;
+
+                if (commentType === 'clause') {
+                    const selectedSection = sectionDropdown.value;
+                    if (!selectedSection) {
+                        showWarning('Please select a section from the dropdown to comment on.');
+                        return;
+                    }
+                    clauseId = selectedSection;
+                    clauseTitle = sectionDropdown.options[sectionDropdown.selectedIndex].text;
+                }
+
+                // --- MODIFIED SECTION ---
+                // If we are editing, update the existing comment. Otherwise, create a new one.
+                if (editingCommentId !== null) {
+                    const commentToUpdate = savedComments.find(c => c.id === editingCommentId);
+                    if (commentToUpdate) {
+                        commentToUpdate.text = commentText;
+                        commentToUpdate.type = commentType;
+                        commentToUpdate.clauseId = clauseId;
+                        commentToUpdate.clauseTitle = clauseTitle;
+                        commentToUpdate.timestamp = new Date().toISOString(); // Update timestamp on edit
+                    }
+                    showSuccess('Comment updated successfully!');
+                } else {
+                    const comment = { id: Date.now(), text: commentText, type: commentType, documentId: documentId, documentName: documentName, clauseId: clauseId, clauseTitle: clauseTitle, timestamp: new Date().toISOString(), status: 'saved' };
+                    savedComments.push(comment);
+                    showSuccess('Comment saved successfully!');
+                }
+                
+                updateSavedCommentsDisplay();
+                clearCommentForm();
+            });
+
+            clearCommentBtn.addEventListener('click', () => { clearCommentForm(); });
+            
+            // --- NEW SECTION: Event Delegation for Edit and Delete ---
+            savedCommentsList.addEventListener('click', (e) => {
+                const target = e.target;
+                
+                // Handle Delete
+                if (target.classList.contains('btn-delete')) {
+                    const commentId = parseInt(target.dataset.commentId, 10);
+                    savedComments = savedComments.filter(comment => comment.id !== commentId);
+                    updateSavedCommentsDisplay();
+                    showSuccess('Comment deleted successfully.');
+                }
+
+                // Handle Edit
+                if (target.classList.contains('btn-edit')) {
+                    const commentId = parseInt(target.dataset.commentId, 10);
+                    const commentToEdit = savedComments.find(comment => comment.id === commentId);
+
+                    if (commentToEdit) {
+                        editingCommentId = commentId; // Set the ID of the comment being edited
+                        commentTextArea.value = commentToEdit.text;
+                        document.querySelector(`input[name="comment-type"][value="${commentToEdit.type}"]`).checked = true;
+                        
+                        // Trigger change event to show/hide the dropdown correctly
+                        document.querySelector(`input[name="comment-type"][value="${commentToEdit.type}"]`).dispatchEvent(new Event('change'));
+                        
+                        if (commentToEdit.type === 'clause') {
+                            sectionDropdown.value = commentToEdit.clauseId;
+                        }
+                        
+                        saveCommentBtn.textContent = 'Update Comment'; // Change button text
+                        commentTextArea.focus();
+                        commentTextArea.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }
+            });
+
+            submitAllBtn.addEventListener('click', () => {
+                if (savedComments.length === 0) {
+                    showWarning('No comments to submit. Please add at least one comment first.');
+                    return;
+                }
+                const submissionData = { documentId: 'MDP-2025-001', documentTitle: 'Establishment of Indian Multi-Disciplinary Partnership (MDP) firms', submissionId: 'SUB-' + Date.now(), submissionTimestamp: new Date().toISOString(), totalComments: savedComments.length, comments: savedComments.map(comment => ({ ...comment, status: 'submitted' })) };
+                console.log('Submitting all comments:', submissionData);
+                savedComments = [];
+                updateSavedCommentsDisplay();
+                clearCommentForm();
+                showSuccess('All comments submitted successfully! Thank you for your participation.');
+                successMessage.scrollIntoView({ behavior: 'smooth' });
+            });
+
+            function clearCommentForm() {
+                commentTextArea.value = '';
+                document.querySelector('input[value="document"]').checked = true;
+                sectionSelector.classList.remove('show');
+                sectionDropdown.disabled = true;
+                sectionDropdown.value = '';
+                documentClauses.forEach(clause => clause.classList.remove('selected'));
+
+                // --- NEW: Reset editing state ---
+                editingCommentId = null;
+                saveCommentBtn.textContent = 'Save Comment';
+            }
+
+            function updateSavedCommentsDisplay() {
+                commentCount.textContent = savedComments.length;
+                if (savedComments.length === 0) {
+                    savedCommentsList.innerHTML = '<div class="no-comments">No comments saved yet.</div>';
+                    submitAllBtn.disabled = true;
+                } else {
+                    // --- MODIFIED SECTION ---
+                    // Added Edit and Delete buttons to the template string
+                    savedCommentsList.innerHTML = savedComments.map(comment => {
+                        let metaInfo;
+                        if (comment.type === 'clause') {
+                            metaInfo = `<strong>Document:</strong> ${comment.documentName}<br><strong>Section:</strong> ${comment.clauseTitle}<br><strong>Saved on:</strong> ${new Date(comment.timestamp).toLocaleString()}`;
+                        } else {
+                            metaInfo = `<strong>Document:</strong> ${comment.documentName}<br><strong>Saved on:</strong> ${new Date(comment.timestamp).toLocaleString()}`;
+                        }
+                        return `
+                            <div class="saved-comment-item">
+                                <div class="comment-meta">${metaInfo.trim()}</div>
+                                <div class="comment-text">${comment.text.replace(/\n/g, '<br>')}</div>
+                                <div class="comment-actions">
+                                    <button class="btn btn-secondary btn-sm btn-edit" data-comment-id="${comment.id}">Edit</button>
+                                    <button class="btn btn-danger btn-sm btn-delete" data-comment-id="${comment.id}">Delete</button>
+                                </div>
+                            </div>`;
+                    }).join('');
+                    submitAllBtn.disabled = false;
+                }
+            }
+
+            function showSuccess(message) {
+                successMessage.textContent = message;
+                successMessage.style.display = 'block';
+                warningMessage.style.display = 'none';
+                setTimeout(() => { successMessage.style.display = 'none'; }, 5000);
+            }
+
+            function showWarning(message) {
+                warningMessage.textContent = message;
+                warningMessage.style.display = 'block';
+                successMessage.style.display = 'none';
+                setTimeout(() => { warningMessage.style.display = 'none'; }, 5000);
+            }
+
+            updateSavedCommentsDisplay();
+        });
+    </script>
+</body>
+</html>

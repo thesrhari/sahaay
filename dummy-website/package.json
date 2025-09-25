@@ -1,0 +1,12 @@
+{
+  "name": "econsultation-dummy",
+  "version": "1.0.0",
+  "description": "A dummy website for e-consultation comments.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

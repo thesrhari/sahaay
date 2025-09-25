@@ -1,0 +1,3107 @@
+/*******************************************************************************
+ * Copyright 2018 Adobe
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ ******************************************************************************/
+
+/**
+ * Element.matches()
+ * https://developer.mozilla.org/enUS/docs/Web/API/Element/matches#Polyfill
+ */
+if (!Element.prototype.matches) {
+    Element.prototype.matches = Element.prototype.msMatchesSelector || Element.prototype.webkitMatchesSelector;
+}
+
+// eslint-disable-next-line valid-jsdoc
+/**
+ * Element.closest()
+ * https://developer.mozilla.org/enUS/docs/Web/API/Element/closest#Polyfill
+ */
+if (!Element.prototype.closest) {
+    Element.prototype.closest = function(s) {
+        "use strict";
+        var el = this;
+        if (!document.documentElement.contains(el)) {
+            return null;
+        }
+        do {
+            if (el.matches(s)) {
+                return el;
+            }
+            el = el.parentElement || el.parentNode;
+        } while (el !== null && el.nodeType === 1);
+        return null;
+    };
+}
+
+/*******************************************************************************
+ * Copyright 2018 Adobe
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ ******************************************************************************/
+/* global
+    CQ
+ */
+(function() {
+    "use strict";
+
+    var dataLayerEnabled;
+    var dataLayer;
+
+    var NS = "cmp";
+    var IS = "tabs";
+
+    var keyCodes = {
+        END: 35,
+        HOME: 36,
+        ARROW_LEFT: 37,
+        ARROW_UP: 38,
+        ARROW_RIGHT: 39,
+        ARROW_DOWN: 40
+    };
+
+    var selectors = {
+        self: "[data-" + NS + '-is="' + IS + '"]',
+        active: {
+            tab: "cmp-tabs__tab--active",
+            tabpanel: "cmp-tabs__tabpanel--active"
+        }
+    };
+
+    /**
+     * Tabs Configuration
+     *
+     * @typedef {Object} TabsConfig Represents a Tabs configuration
+     * @property {HTMLElement} element The HTMLElement representing the Tabs
+     * @property {Object} options The Tabs options
+     */
+
+    /**
+     * Tabs
+     *
+     * @class Tabs
+     * @classdesc An interactive Tabs component for navigating a list of tabs
+     * @param {TabsConfig} config The Tabs configuration
+     */
+    function Tabs(config) {
+        var that = this;
+
+        if (config && config.element) {
+            init(config);
+        }
+
+        /**
+         * Initializes the Tabs
+         *
+         * @private
+         * @param {TabsConfig} config The Tabs configuration
+         */
+        function init(config) {
+            that._config = config;
+
+            // prevents multiple initialization
+            config.element.removeAttribute("data-" + NS + "-is");
+
+            cacheElements(config.element);
+            that._active = getActiveIndex(that._elements["tab"]);
+
+            if (that._elements.tabpanel) {
+                refreshActive();
+                bindEvents();
+            }
+
+            // Show the tab based on deep-link-id if it matches with any existing tab item id
+            var deepLinkItemIdx = CQ.CoreComponents.container.utils.getDeepLinkItemIdx(that, "tabpanel");
+            if (deepLinkItemIdx) {
+                var deepLinkItem = that._elements["tab"][deepLinkItemIdx];
+                if (deepLinkItem && that._elements["tab"][that._active].id !== deepLinkItem.id) {
+                    navigateAndFocusTab(deepLinkItemIdx);
+                }
+            }
+
+            if (window.Granite && window.Granite.author && window.Granite.author.MessageChannel) {
+                /*
+                 * Editor message handling:
+                 * - subscribe to "cmp.panelcontainer" message requests sent by the editor frame
+                 * - check that the message data panel container type is correct and that the id (path) matches this specific Tabs component
+                 * - if so, route the "navigate" operation to enact a navigation of the Tabs based on index data
+                 */
+                CQ.CoreComponents.MESSAGE_CHANNEL = CQ.CoreComponents.MESSAGE_CHANNEL || new window.Granite.author.MessageChannel("cqauthor", window);
+                CQ.CoreComponents.MESSAGE_CHANNEL.subscribeRequestMessage("cmp.panelcontainer", function(message) {
+                    if (message.data && message.data.type === "cmp-tabs" && message.data.id === that._elements.self.dataset["cmpPanelcontainerId"]) {
+                        if (message.data.operation === "navigate") {
+                            navigate(message.data.index);
+                        }
+                    }
+                });
+            }
+        }
+
+        /**
+         * Returns the index of the active tab, if no tab is active returns 0
+         *
+         * @param {Array} tabs Tab elements
+         * @returns {Number} Index of the active tab, 0 if none is active
+         */
+        function getActiveIndex(tabs) {
+            if (tabs) {
+                for (var i = 0; i < tabs.length; i++) {
+                    if (tabs[i].classList.contains(selectors.active.tab)) {
+                        return i;
+                    }
+                }
+            }
+            return 0;
+        }
+
+        /**
+         * Caches the Tabs elements as defined via the {@code data-tabs-hook="ELEMENT_NAME"} markup API
+         *
+         * @private
+         * @param {HTMLElement} wrapper The Tabs wrapper element
+         */
+        function cacheElements(wrapper) {
+            that._elements = {};
+            that._elements.self = wrapper;
+            var hooks = that._elements.self.querySelectorAll("[data-" + NS + "-hook-" + IS + "]");
+
+            for (var i = 0; i < hooks.length; i++) {
+                var hook = hooks[i];
+                if (hook.closest("." + NS + "-" + IS) === that._elements.self) { // only process own tab elements
+                    var capitalized = IS;
+                    capitalized = capitalized.charAt(0).toUpperCase() + capitalized.slice(1);
+                    var key = hook.dataset[NS + "Hook" + capitalized];
+                    if (that._elements[key]) {
+                        if (!Array.isArray(that._elements[key])) {
+                            var tmp = that._elements[key];
+                            that._elements[key] = [tmp];
+                        }
+                        that._elements[key].push(hook);
+                    } else {
+                        that._elements[key] = hook;
+                    }
+                }
+            }
+        }
+
+        /**
+         * Binds Tabs event handling
+         *
+         * @private
+         */
+        function bindEvents() {
+            var tabs = that._elements["tab"];
+            if (tabs) {
+                for (var i = 0; i < tabs.length; i++) {
+                    (function(index) {
+                        tabs[i].addEventListener("click", function(event) {
+                            navigateAndFocusTab(index);
+                        });
+                        tabs[i].addEventListener("keydown", function(event) {
+                            onKeyDown(event);
+                        });
+                    })(i);
+                }
+            }
+        }
+
+        /**
+         * Handles tab keydown events
+         *
+         * @private
+         * @param {Object} event The keydown event
+         */
+        function onKeyDown(event) {
+            var index = that._active;
+            var lastIndex = that._elements["tab"].length - 1;
+
+            switch (event.keyCode) {
+                case keyCodes.ARROW_LEFT:
+                case keyCodes.ARROW_UP:
+                    event.preventDefault();
+                    if (index > 0) {
+                        navigateAndFocusTab(index - 1);
+                    }
+                    break;
+                case keyCodes.ARROW_RIGHT:
+                case keyCodes.ARROW_DOWN:
+                    event.preventDefault();
+                    if (index < lastIndex) {
+                        navigateAndFocusTab(index + 1);
+                    }
+                    break;
+                case keyCodes.HOME:
+                    event.preventDefault();
+                    navigateAndFocusTab(0);
+                    break;
+                case keyCodes.END:
+                    event.preventDefault();
+                    navigateAndFocusTab(lastIndex);
+                    break;
+                default:
+                    return;
+            }
+        }
+
+        /**
+         * Refreshes the tab markup based on the current {@code Tabs#_active} index
+         *
+         * @private
+         */
+        function refreshActive() {
+            var tabpanels = that._elements["tabpanel"];
+            var tabs = that._elements["tab"];
+
+            if (tabpanels) {
+                if (Array.isArray(tabpanels)) {
+                    for (var i = 0; i < tabpanels.length; i++) {
+                        if (i === parseInt(that._active)) {
+                            tabpanels[i].classList.add(selectors.active.tabpanel);
+                            tabpanels[i].removeAttribute("aria-hidden");
+                            tabs[i].classList.add(selectors.active.tab);
+                            tabs[i].setAttribute("aria-selected", true);
+                            tabs[i].setAttribute("tabindex", "0");
+                        } else {
+                            tabpanels[i].classList.remove(selectors.active.tabpanel);
+                            tabpanels[i].setAttribute("aria-hidden", true);
+                            tabs[i].classList.remove(selectors.active.tab);
+                            tabs[i].setAttribute("aria-selected", false);
+                            tabs[i].setAttribute("tabindex", "-1");
+                        }
+                    }
+                } else {
+                    // only one tab
+                    tabpanels.classList.add(selectors.active.tabpanel);
+                    tabs.classList.add(selectors.active.tab);
+                }
+            }
+        }
+
+        /**
+         * Focuses the element and prevents scrolling the element into view
+         *
+         * @param {HTMLElement} element Element to focus
+         */
+        function focusWithoutScroll(element) {
+            var x = window.scrollX || window.pageXOffset;
+            var y = window.scrollY || window.pageYOffset;
+            element.focus();
+            window.scrollTo(x, y);
+        }
+
+        /**
+         * Navigates to the tab at the provided index
+         *
+         * @private
+         * @param {Number} index The index of the tab to navigate to
+         */
+        function navigate(index) {
+            that._active = index;
+            refreshActive();
+        }
+
+        /**
+         * Navigates to the item at the provided index and ensures the active tab gains focus
+         *
+         * @private
+         * @param {Number} index The index of the item to navigate to
+         */
+        function navigateAndFocusTab(index) {
+            var exActive = that._active;
+            navigate(index);
+            focusWithoutScroll(that._elements["tab"][index]);
+
+            if (dataLayerEnabled) {
+
+                var activeItem = getDataLayerId(that._elements.tabpanel[index]);
+                var exActiveItem = getDataLayerId(that._elements.tabpanel[exActive]);
+
+                dataLayer.push({
+                    event: "cmp:show",
+                    eventInfo: {
+                        path: "component." + activeItem
+                    }
+                });
+
+                dataLayer.push({
+                    event: "cmp:hide",
+                    eventInfo: {
+                        path: "component." + exActiveItem
+                    }
+                });
+
+                var tabsId = that._elements.self.id;
+                var uploadPayload = { component: {} };
+                uploadPayload.component[tabsId] = { shownItems: [activeItem] };
+
+                var removePayload = { component: {} };
+                removePayload.component[tabsId] = { shownItems: undefined };
+
+                dataLayer.push(removePayload);
+                dataLayer.push(uploadPayload);
+            }
+        }
+    }
+
+    /**
+     * Reads options data from the Tabs wrapper element, defined via {@code data-cmp-*} data attributes
+     *
+     * @private
+     * @param {HTMLElement} element The Tabs element to read options data from
+     * @returns {Object} The options read from the component data attributes
+     */
+    function readData(element) {
+        var data = element.dataset;
+        var options = [];
+        var capitalized = IS;
+        capitalized = capitalized.charAt(0).toUpperCase() + capitalized.slice(1);
+        var reserved = ["is", "hook" + capitalized];
+
+        for (var key in data) {
+            if (data.hasOwnProperty(key)) {
+                var value = data[key];
+
+                if (key.indexOf(NS) === 0) {
+                    key = key.slice(NS.length);
+                    key = key.charAt(0).toLowerCase() + key.substring(1);
+
+                    if (reserved.indexOf(key) === -1) {
+                        options[key] = value;
+                    }
+                }
+            }
+        }
+
+        return options;
+    }
+
+    /**
+     * Parses the dataLayer string and returns the ID
+     *
+     * @private
+     * @param {HTMLElement} item the accordion item
+     * @returns {String} dataLayerId or undefined
+     */
+    function getDataLayerId(item) {
+        if (item && item.dataset.cmpDataLayer) {
+            return Object.keys(JSON.parse(item.dataset.cmpDataLayer))[0];
+        } else {
+            return item.id;
+        }
+    }
+
+    /**
+     * Document ready handler and DOM mutation observers. Initializes Tabs components as necessary.
+     *
+     * @private
+     */
+    function onDocumentReady() {
+        dataLayerEnabled = document.body.hasAttribute("data-cmp-data-layer-enabled");
+        dataLayer = (dataLayerEnabled) ? window.adobeDataLayer = window.adobeDataLayer || [] : undefined;
+
+        var elements = document.querySelectorAll(selectors.self);
+        for (var i = 0; i < elements.length; i++) {
+            new Tabs({ element: elements[i], options: readData(elements[i]) });
+        }
+
+        var MutationObserver = window.MutationObserver || window.WebKitMutationObserver || window.MozMutationObserver;
+        var body = document.querySelector("body");
+        var observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                // needed for IE
+                var nodesArray = [].slice.call(mutation.addedNodes);
+                if (nodesArray.length > 0) {
+                    nodesArray.forEach(function(addedNode) {
+                        if (addedNode.querySelectorAll) {
+                            var elementsArray = [].slice.call(addedNode.querySelectorAll(selectors.self));
+                            elementsArray.forEach(function(element) {
+                                new Tabs({ element: element, options: readData(element) });
+                            });
+                        }
+                    });
+                }
+            });
+        });
+
+        observer.observe(body, {
+            subtree: true,
+            childList: true,
+            characterData: true
+        });
+    }
+
+    if (document.readyState !== "loading") {
+        onDocumentReady();
+    } else {
+        document.addEventListener("DOMContentLoaded", onDocumentReady);
+    }
+
+}());
+
+/*******************************************************************************
+ * Copyright 2018 Adobe
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ ******************************************************************************/
+(function() {
+    "use strict";
+
+    var NS = "cmp";
+    var IS = "carousel";
+
+    var keyCodes = {
+        SPACE: 32,
+        END: 35,
+        HOME: 36,
+        ARROW_LEFT: 37,
+        ARROW_UP: 38,
+        ARROW_RIGHT: 39,
+        ARROW_DOWN: 40
+    };
+
+    var selectors = {
+        self: "[data-" +  NS + '-is="' + IS + '"]'
+    };
+
+    var properties = {
+        /**
+         * Determines whether the Carousel will automatically transition between slides
+         *
+         * @memberof Carousel
+         * @type {Boolean}
+         * @default false
+         */
+        "autoplay": {
+            "default": false,
+            "transform": function(value) {
+                return !(value === null || typeof value === "undefined");
+            }
+        },
+        /**
+         * Duration (in milliseconds) before automatically transitioning to the next slide
+         *
+         * @memberof Carousel
+         * @type {Number}
+         * @default 5000
+         */
+        "delay": {
+            "default": 5000,
+            "transform": function(value) {
+                value = parseFloat(value);
+                return !isNaN(value) ? value : null;
+            }
+        },
+        /**
+         * Determines whether automatic pause on hovering the carousel is disabled
+         *
+         * @memberof Carousel
+         * @type {Boolean}
+         * @default false
+         */
+        "autopauseDisabled": {
+            "default": false,
+            "transform": function(value) {
+                return !(value === null || typeof value === "undefined");
+            }
+        }
+    };
+
+    /**
+     * Carousel Configuration
+     *
+     * @typedef {Object} CarouselConfig Represents a Carousel configuration
+     * @property {HTMLElement} element The HTMLElement representing the Carousel
+     * @property {Object} options The Carousel options
+     */
+
+    /**
+     * Carousel
+     *
+     * @class Carousel
+     * @classdesc An interactive Carousel component for navigating a list of generic items
+     * @param {CarouselConfig} config The Carousel configuration
+     */
+    function Carousel(config) {
+        var that = this;
+
+        if (config && config.element) {
+            init(config);
+        }
+
+        /**
+         * Initializes the Carousel
+         *
+         * @private
+         * @param {CarouselConfig} config The Carousel configuration
+         */
+        function init(config) {
+            // prevents multiple initialization
+            config.element.removeAttribute("data-" + NS + "-is");
+
+            setupProperties(config.options);
+            cacheElements(config.element);
+
+            that._active = 0;
+            that._paused = false;
+
+            if (that._elements.item) {
+                refreshActive();
+                bindEvents();
+                resetAutoplayInterval();
+                refreshPlayPauseActions();
+            }
+
+            if (window.Granite && window.Granite.author && window.Granite.author.MessageChannel) {
+                /*
+                 * Editor message handling:
+                 * - subscribe to "cmp.panelcontainer" message requests sent by the editor frame
+                 * - check that the message data panel container type is correct and that the id (path) matches this specific Carousel component
+                 * - if so, route the "navigate" operation to enact a navigation of the Carousel based on index data
+                 */
+                new window.Granite.author.MessageChannel("cqauthor", window).subscribeRequestMessage("cmp.panelcontainer", function(message) {
+                    if (message.data && message.data.type === "cmp-carousel" && message.data.id === that._elements.self.dataset["cmpPanelcontainerId"]) {
+                        if (message.data.operation === "navigate") {
+                            navigate(message.data.index);
+                        }
+                    }
+                });
+            }
+        }
+
+        /**
+         * Caches the Carousel elements as defined via the {@code data-carousel-hook="ELEMENT_NAME"} markup API
+         *
+         * @private
+         * @param {HTMLElement} wrapper The Carousel wrapper element
+         */
+        function cacheElements(wrapper) {
+            that._elements = {};
+            that._elements.self = wrapper;
+            var hooks = that._elements.self.querySelectorAll("[data-" + NS + "-hook-" + IS + "]");
+
+            for (var i = 0; i < hooks.length; i++) {
+                var hook = hooks[i];
+                var capitalized = IS;
+                capitalized = capitalized.charAt(0).toUpperCase() + capitalized.slice(1);
+                var key = hook.dataset[NS + "Hook" + capitalized];
+                if (that._elements[key]) {
+                    if (!Array.isArray(that._elements[key])) {
+                        var tmp = that._elements[key];
+                        that._elements[key] = [tmp];
+                    }
+                    that._elements[key].push(hook);
+                } else {
+                    that._elements[key] = hook;
+                }
+            }
+        }
+
+        /**
+         * Sets up properties for the Carousel based on the passed options.
+         *
+         * @private
+         * @param {Object} options The Carousel options
+         */
+        function setupProperties(options) {
+            that._properties = {};
+
+            for (var key in properties) {
+                if (properties.hasOwnProperty(key)) {
+                    var property = properties[key];
+                    var value = null;
+
+                    if (options && options[key] != null) {
+                        value = options[key];
+
+                        // transform the provided option
+                        if (property && typeof property.transform === "function") {
+                            value = property.transform(value);
+                        }
+                    }
+
+                    if (value === null) {
+                        // value still null, take the property default
+                        value = properties[key]["default"];
+                    }
+
+                    that._properties[key] = value;
+                }
+            }
+        }
+
+        /**
+         * Binds Carousel event handling
+         *
+         * @private
+         */
+        function bindEvents() {
+            if (that._elements["previous"]) {
+                that._elements["previous"].addEventListener("click", function() {
+                    navigate(getPreviousIndex());
+                });
+            }
+
+            if (that._elements["next"]) {
+                that._elements["next"].addEventListener("click", function() {
+                    navigate(getNextIndex());
+                });
+            }
+
+            var indicators = that._elements["indicator"];
+            if (indicators) {
+                for (var i = 0; i < indicators.length; i++) {
+                    (function(index) {
+                        indicators[i].addEventListener("click", function(event) {
+                            navigateAndFocusIndicator(index);
+                        });
+                    })(i);
+                }
+            }
+
+            if (that._elements["pause"]) {
+                if (that._properties.autoplay) {
+                    that._elements["pause"].addEventListener("click", onPauseClick);
+                }
+            }
+
+            if (that._elements["play"]) {
+                if (that._properties.autoplay) {
+                    that._elements["play"].addEventListener("click", onPlayClick);
+                }
+            }
+
+            that._elements.self.addEventListener("keydown", onKeyDown);
+
+            if (!that._properties.autopauseDisabled) {
+                that._elements.self.addEventListener("mouseenter", onMouseEnter);
+                that._elements.self.addEventListener("mouseleave", onMouseLeave);
+            }
+        }
+
+        /**
+         * Handles carousel keydown events
+         *
+         * @private
+         * @param {Object} event The keydown event
+         */
+        function onKeyDown(event) {
+            var index = that._active;
+            var lastIndex = that._elements["indicator"].length - 1;
+
+            switch (event.keyCode) {
+                case keyCodes.ARROW_LEFT:
+                case keyCodes.ARROW_UP:
+                    event.preventDefault();
+                    if (index > 0) {
+                        navigateAndFocusIndicator(index - 1);
+                    }
+                    break;
+                case keyCodes.ARROW_RIGHT:
+                case keyCodes.ARROW_DOWN:
+                    event.preventDefault();
+                    if (index < lastIndex) {
+                        navigateAndFocusIndicator(index + 1);
+                    }
+                    break;
+                case keyCodes.HOME:
+                    event.preventDefault();
+                    navigateAndFocusIndicator(0);
+                    break;
+                case keyCodes.END:
+                    event.preventDefault();
+                    navigateAndFocusIndicator(lastIndex);
+                    break;
+                case keyCodes.SPACE:
+                    if (that._properties.autoplay && (event.target !== that._elements["previous"] && event.target !== that._elements["next"])) {
+                        event.preventDefault();
+                        if (!that._paused) {
+                            pause();
+                        } else {
+                            play();
+                        }
+                    }
+                    if (event.target === that._elements["pause"]) {
+                        that._elements["play"].focus();
+                    }
+                    if (event.target === that._elements["play"]) {
+                        that._elements["pause"].focus();
+                    }
+                    break;
+                default:
+                    return;
+            }
+        }
+
+        /**
+         * Handles carousel mouseenter events
+         *
+         * @private
+         * @param {Object} event The mouseenter event
+         */
+        function onMouseEnter(event) {
+            clearAutoplayInterval();
+        }
+
+        /**
+         * Handles carousel mouseleave events
+         *
+         * @private
+         * @param {Object} event The mouseleave event
+         */
+        function onMouseLeave(event) {
+            resetAutoplayInterval();
+        }
+
+        /**
+         * Handles pause element click events
+         *
+         * @private
+         * @param {Object} event The click event
+         */
+        function onPauseClick(event) {
+            pause();
+            that._elements["play"].focus();
+        }
+
+        /**
+         * Handles play element click events
+         *
+         * @private
+         * @param {Object} event The click event
+         */
+        function onPlayClick() {
+            play();
+            that._elements["pause"].focus();
+        }
+
+        /**
+         * Pauses the playing of the Carousel. Sets {@code Carousel#_paused} marker.
+         * Only relevant when autoplay is enabled
+         *
+         * @private
+         */
+        function pause() {
+            that._paused = true;
+            clearAutoplayInterval();
+            refreshPlayPauseActions();
+        }
+
+        /**
+         * Enables the playing of the Carousel. Sets {@code Carousel#_paused} marker.
+         * Only relevant when autoplay is enabled
+         *
+         * @private
+         */
+        function play() {
+            that._paused = false;
+
+            // If the Carousel is hovered, don't begin auto transitioning until the next mouse leave event
+            var hovered = false;
+            if (that._elements.self.parentElement) {
+                hovered = that._elements.self.parentElement.querySelector(":hover") === that._elements.self;
+            }
+            if (that._properties.autopauseDisabled || !hovered) {
+                resetAutoplayInterval();
+            }
+
+            refreshPlayPauseActions();
+        }
+
+        /**
+         * Refreshes the play/pause action markup based on the {@code Carousel#_paused} state
+         *
+         * @private
+         */
+        function refreshPlayPauseActions() {
+            setActionDisabled(that._elements["pause"], that._paused);
+            setActionDisabled(that._elements["play"], !that._paused);
+        }
+
+        /**
+         * Refreshes the item markup based on the current {@code Carousel#_active} index
+         *
+         * @private
+         */
+        function refreshActive() {
+            var items = that._elements["item"];
+            var indicators = that._elements["indicator"];
+
+            if (items) {
+                if (Array.isArray(items)) {
+                    for (var i = 0; i < items.length; i++) {
+                        if (i === parseInt(that._active)) {
+                            items[i].classList.add("cmp-carousel__item--active");
+                            items[i].removeAttribute("aria-hidden");
+                            indicators[i].classList.add("cmp-carousel__indicator--active");
+                            indicators[i].setAttribute("aria-selected", true);
+                            indicators[i].setAttribute("tabindex", "0");
+                        } else {
+                            items[i].classList.remove("cmp-carousel__item--active");
+                            items[i].setAttribute("aria-hidden", true);
+                            indicators[i].classList.remove("cmp-carousel__indicator--active");
+                            indicators[i].setAttribute("aria-selected", false);
+                            indicators[i].setAttribute("tabindex", "-1");
+                        }
+                    }
+                } else {
+                    // only one item
+                    items.classList.add("cmp-carousel__item--active");
+                    indicators.classList.add("cmp-carousel__indicator--active");
+                }
+            }
+        }
+
+        /**
+         * Focuses the element and prevents scrolling the element into view
+         *
+         * @param {HTMLElement} element Element to focus
+         */
+        function focusWithoutScroll(element) {
+            var x = window.scrollX || window.pageXOffset;
+            var y = window.scrollY || window.pageYOffset;
+            element.focus();
+            window.scrollTo(x, y);
+        }
+
+        /**
+         * Retrieves the next active index, with looping
+         *
+         * @private
+         * @returns {Number} Index of the next carousel item
+         */
+        function getNextIndex() {
+            return that._active === (that._elements["item"].length - 1) ? 0 : that._active + 1;
+        }
+
+        /**
+         * Retrieves the previous active index, with looping
+         *
+         * @private
+         * @returns {Number} Index of the previous carousel item
+         */
+        function getPreviousIndex() {
+            return that._active === 0 ? (that._elements["item"].length - 1) : that._active - 1;
+        }
+
+        /**
+         * Navigates to the item at the provided index
+         *
+         * @private
+         * @param {Number} index The index of the item to navigate to
+         */
+        function navigate(index) {
+            if (index < 0 || index > (that._elements["item"].length - 1)) {
+                return;
+            }
+
+            that._active = index;
+            refreshActive();
+
+            // reset the autoplay transition interval following navigation, if not already hovering the carousel
+            if (that._elements.self.parentElement) {
+                if (that._elements.self.parentElement.querySelector(":hover") !== that._elements.self) {
+                    resetAutoplayInterval();
+                }
+            }
+        }
+
+        /**
+         * Navigates to the item at the provided index and ensures the active indicator gains focus
+         *
+         * @private
+         * @param {Number} index The index of the item to navigate to
+         */
+        function navigateAndFocusIndicator(index) {
+            navigate(index);
+            focusWithoutScroll(that._elements["indicator"][index]);
+        }
+
+        /**
+         * Starts/resets automatic slide transition interval
+         *
+         * @private
+         */
+        function resetAutoplayInterval() {
+            if (that._paused || !that._properties.autoplay) {
+                return;
+            }
+            clearAutoplayInterval();
+            that._autoplayIntervalId = window.setInterval(function() {
+                if (document.visibilityState && document.hidden) {
+                    return;
+                }
+                var indicators = that._elements["indicators"];
+                if (indicators !== document.activeElement && indicators.contains(document.activeElement)) {
+                    // if an indicator has focus, ensure we switch focus following navigation
+                    navigateAndFocusIndicator(getNextIndex());
+                } else {
+                    navigate(getNextIndex());
+                }
+            }, that._properties.delay);
+        }
+
+        /**
+         * Clears/pauses automatic slide transition interval
+         *
+         * @private
+         */
+        function clearAutoplayInterval() {
+            window.clearInterval(that._autoplayIntervalId);
+            that._autoplayIntervalId = null;
+        }
+
+        /**
+         * Sets the disabled state for an action and toggles the appropriate CSS classes
+         *
+         * @private
+         * @param {HTMLElement} action Action to disable
+         * @param {Boolean} [disable] {@code true} to disable, {@code false} to enable
+         */
+        function setActionDisabled(action, disable) {
+            if (!action) {
+                return;
+            }
+            if (disable !== false) {
+                action.disabled = true;
+                action.classList.add("cmp-carousel__action--disabled");
+            } else {
+                action.disabled = false;
+                action.classList.remove("cmp-carousel__action--disabled");
+            }
+        }
+    }
+
+    /**
+     * Reads options data from the Carousel wrapper element, defined via {@code data-cmp-*} data attributes
+     *
+     * @private
+     * @param {HTMLElement} element The Carousel element to read options data from
+     * @returns {Object} The options read from the component data attributes
+     */
+    function readData(element) {
+        var data = element.dataset;
+        var options = [];
+        var capitalized = IS;
+        capitalized = capitalized.charAt(0).toUpperCase() + capitalized.slice(1);
+        var reserved = ["is", "hook" + capitalized];
+
+        for (var key in data) {
+            if (data.hasOwnProperty(key)) {
+                var value = data[key];
+
+                if (key.indexOf(NS) === 0) {
+                    key = key.slice(NS.length);
+                    key = key.charAt(0).toLowerCase() + key.substring(1);
+
+                    if (reserved.indexOf(key) === -1) {
+                        options[key] = value;
+                    }
+                }
+            }
+        }
+
+        return options;
+    }
+
+    /**
+     * Document ready handler and DOM mutation observers. Initializes Carousel components as necessary.
+     *
+     * @private
+     */
+    function onDocumentReady() {
+        var elements = document.querySelectorAll(selectors.self);
+        for (var i = 0; i < elements.length; i++) {
+            new Carousel({ element: elements[i], options: readData(elements[i]) });
+        }
+
+        var MutationObserver = window.MutationObserver || window.WebKitMutationObserver || window.MozMutationObserver;
+        var body             = document.querySelector("body");
+        var observer         = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                // needed for IE
+                var nodesArray = [].slice.call(mutation.addedNodes);
+                if (nodesArray.length > 0) {
+                    nodesArray.forEach(function(addedNode) {
+                        if (addedNode.querySelectorAll) {
+                            var elementsArray = [].slice.call(addedNode.querySelectorAll(selectors.self));
+                            elementsArray.forEach(function(element) {
+                                new Carousel({ element: element, options: readData(element) });
+                            });
+                        }
+                    });
+                }
+            });
+        });
+
+        observer.observe(body, {
+            subtree: true,
+            childList: true,
+            characterData: true
+        });
+    }
+
+    if (document.readyState !== "loading") {
+        onDocumentReady();
+    } else {
+        document.addEventListener("DOMContentLoaded", onDocumentReady);
+    }
+
+}());
+
+/*******************************************************************************
+ * Copyright 2018 Adobe
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ ******************************************************************************/
+(function() {
+    "use strict";
+
+    var NS = "cmp";
+    var IS = "carousel";
+
+    var keyCodes = {
+        SPACE: 32,
+        END: 35,
+        HOME: 36,
+        ARROW_LEFT: 37,
+        ARROW_UP: 38,
+        ARROW_RIGHT: 39,
+        ARROW_DOWN: 40
+    };
+
+    var selectors = {
+        self: "[data-" +  NS + '-is="' + IS + '"]'
+    };
+
+    var properties = {
+
+        "autoplay": {
+            "default": false,
+            "transform": function(value) {
+                return !(value === null || typeof value === "undefined");
+            }
+        },
+
+        "delay": {
+            "default": 5000,
+            "transform": function(value) {
+                value = parseFloat(value);
+                return !isNaN(value) ? value : null;
+            }
+        },
+        /**
+         * Determines whether automatic pause on hovering the carousel is disabled
+         *
+         * @memberof Carousel
+         * @type {Boolean}
+         * @default false
+         */
+        "autopauseDisabled": {
+            "default": false,
+            "transform": function(value) {
+                return !(value === null || typeof value === "undefined");
+            }
+        }
+    };
+
+    /**
+     * Carousel Configuration
+     *
+     * @typedef {Object} CarouselConfig Represents a Carousel configuration
+     * @property {HTMLElement} element The HTMLElement representing the Carousel
+     * @property {Object} options The Carousel options
+     */
+
+    /**
+     * Carousel
+     *
+     * @class Carousel
+     * @classdesc An interactive Carousel component for navigating a list of generic items
+     * @param {CarouselConfig} config The Carousel configuration
+     */
+    function Carousel(config) {
+        var that = this;
+
+        if (config && config.element) {
+            init(config);
+        }
+
+        /**
+         * Initializes the Carousel
+         *
+         * @private
+         * @param {CarouselConfig} config The Carousel configuration
+         */
+        function init(config) {
+            // prevents multiple initialization
+            config.element.removeAttribute("data-" + NS + "-is");
+
+            setupProperties(config.options);
+            cacheElements(config.element);
+
+            that._active = 0;
+            that._paused = false;
+
+            if (that._elements.item) {
+                refreshActive();
+                bindEvents();
+                resetAutoplayInterval();
+                refreshPlayPauseActions();
+            }
+
+            if (window.Granite && window.Granite.author && window.Granite.author.MessageChannel) {
+                /*
+                 * Editor message handling:
+                 * - subscribe to "cmp.panelcontainer" message requests sent by the editor frame
+                 * - check that the message data panel container type is correct and that the id (path) matches this specific Carousel component
+                 * - if so, route the "navigate" operation to enact a navigation of the Carousel based on index data
+                 */
+                new window.Granite.author.MessageChannel("cqauthor", window).subscribeRequestMessage("cmp.panelcontainer", function(message) {
+                    if (message.data && message.data.type === "cmp-carousel" && message.data.id === that._elements.self.dataset["cmpPanelcontainerId"]) {
+                        if (message.data.operation === "navigate") {
+                            navigate(message.data.index);
+                        }
+                    }
+                });
+            }
+        }
+
+        /**
+         * Caches the Carousel elements as defined via the {@code data-carousel-hook="ELEMENT_NAME"} markup API
+         *
+         * @private
+         * @param {HTMLElement} wrapper The Carousel wrapper element
+         */
+        function cacheElements(wrapper) {
+            that._elements = {};
+            that._elements.self = wrapper;
+            var hooks = that._elements.self.querySelectorAll("[data-" + NS + "-hook-" + IS + "]");
+
+            for (var i = 0; i < hooks.length; i++) {
+                var hook = hooks[i];
+                var capitalized = IS;
+                capitalized = capitalized.charAt(0).toUpperCase() + capitalized.slice(1);
+                var key = hook.dataset[NS + "Hook" + capitalized];
+                if (that._elements[key]) {
+                    if (!Array.isArray(that._elements[key])) {
+                        var tmp = that._elements[key];
+                        that._elements[key] = [tmp];
+                    }
+                    that._elements[key].push(hook);
+                } else {
+                    that._elements[key] = hook;
+                }
+            }
+        }
+
+        /**
+         * Sets up properties for the Carousel based on the passed options.
+         *
+         * @private
+         * @param {Object} options The Carousel options
+         */
+        function setupProperties(options) {
+            that._properties = {};
+
+            for (var key in properties) {
+                if (properties.hasOwnProperty(key)) {
+                    var property = properties[key];
+                    var value = null;
+
+                    if (options && options[key] != null) {
+                        value = options[key];
+
+                        // transform the provided option
+                        if (property && typeof property.transform === "function") {
+                            value = property.transform(value);
+                        }
+                    }
+
+                    if (value === null) {
+                        // value still null, take the property default
+                        value = properties[key]["default"];
+                    }
+
+                    that._properties[key] = value;
+                }
+            }
+        }
+
+        /**
+         * Binds Carousel event handling
+         *
+         * @private
+         */
+        function bindEvents() {
+            if (that._elements["previous"]) {
+                that._elements["previous"].addEventListener("click", function() {
+                    navigate(getPreviousIndex());
+                });
+            }
+
+            if (that._elements["next"]) {
+                that._elements["next"].addEventListener("click", function() {
+                    navigate(getNextIndex());
+                });
+            }
+
+            var indicators = that._elements["indicator"];
+            if (indicators) {
+                for (var i = 0; i < indicators.length; i++) {
+                    (function(index) {
+                        indicators[i].addEventListener("click", function(event) {
+                            navigateAndFocusIndicator(index);
+                        });
+                    })(i);
+                }
+            }
+
+            if (that._elements["pause"]) {
+                if (that._properties.autoplay) {
+                    that._elements["pause"].addEventListener("click", onPauseClick);
+                }
+            }
+
+            if (that._elements["play"]) {
+                if (that._properties.autoplay) {
+                    that._elements["play"].addEventListener("click", onPlayClick);
+                }
+            }
+
+            that._elements.self.addEventListener("keydown", onKeyDown);
+
+            if (!that._properties.autopauseDisabled) {
+                that._elements.self.addEventListener("mouseenter", onMouseEnter);
+                that._elements.self.addEventListener("mouseleave", onMouseLeave);
+            }
+        }
+
+        /**
+         * Handles carousel keydown events
+         *
+         * @private
+         * @param {Object} event The keydown event
+         */
+        function onKeyDown(event) {
+            var index = that._active;
+            var lastIndex = that._elements["indicator"].length - 1;
+
+            switch (event.keyCode) {
+                case keyCodes.ARROW_LEFT:
+                case keyCodes.ARROW_UP:
+                    event.preventDefault();
+                    if (index > 0) {
+                        navigateAndFocusIndicator(index - 1);
+                    }
+                    break;
+                case keyCodes.ARROW_RIGHT:
+                case keyCodes.ARROW_DOWN:
+                    event.preventDefault();
+                    if (index < lastIndex) {
+                        navigateAndFocusIndicator(index + 1);
+                    }
+                    break;
+                case keyCodes.HOME:
+                    event.preventDefault();
+                    navigateAndFocusIndicator(0);
+                    break;
+                case keyCodes.END:
+                    event.preventDefault();
+                    navigateAndFocusIndicator(lastIndex);
+                    break;
+                case keyCodes.SPACE:
+                    if (that._properties.autoplay && (event.target !== that._elements["previous"] && event.target !== that._elements["next"])) {
+                        event.preventDefault();
+                        if (!that._paused) {
+                            pause();
+                        } else {
+                            play();
+                        }
+                    }
+                    if (event.target === that._elements["pause"]) {
+                        that._elements["play"].focus();
+                    }
+                    if (event.target === that._elements["play"]) {
+                        that._elements["pause"].focus();
+                    }
+                    break;
+                default:
+                    return;
+            }
+        }
+
+        /**
+         * Handles carousel mouseenter events
+         *
+         * @private
+         * @param {Object} event The mouseenter event
+         */
+        function onMouseEnter(event) {
+            clearAutoplayInterval();
+        }
+
+        /**
+         * Handles carousel mouseleave events
+         *
+         * @private
+         * @param {Object} event The mouseleave event
+         */
+        function onMouseLeave(event) {
+            resetAutoplayInterval();
+        }
+
+        /**
+         * Handles pause element click events
+         *
+         * @private
+         * @param {Object} event The click event
+         */
+        function onPauseClick(event) {
+            pause();
+            that._elements["play"].focus();
+        }
+
+        /**
+         * Handles play element click events
+         *
+         * @private
+         * @param {Object} event The click event
+         */
+        function onPlayClick() {
+            play();
+            that._elements["pause"].focus();
+        }
+
+        /**
+         * Pauses the playing of the Carousel. Sets {@code Carousel#_paused} marker.
+         * Only relevant when autoplay is enabled
+         *
+         * @private
+         */
+        function pause() {
+            that._paused = true;
+            clearAutoplayInterval();
+            refreshPlayPauseActions();
+        }
+
+        /**
+         * Enables the playing of the Carousel. Sets {@code Carousel#_paused} marker.
+         * Only relevant when autoplay is enabled
+         *
+         * @private
+         */
+        function play() {
+            that._paused = false;
+
+            // If the Carousel is hovered, don't begin auto transitioning until the next mouse leave event
+            var hovered = false;
+            if (that._elements.self.parentElement) {
+                hovered = that._elements.self.parentElement.querySelector(":hover") === that._elements.self;
+            }
+            if (that._properties.autopauseDisabled || !hovered) {
+                resetAutoplayInterval();
+            }
+
+            refreshPlayPauseActions();
+        }
+
+        /**
+         * Refreshes the play/pause action markup based on the {@code Carousel#_paused} state
+         *
+         * @private
+         */
+        function refreshPlayPauseActions() {
+            setActionDisabled(that._elements["pause"], that._paused);
+            setActionDisabled(that._elements["play"], !that._paused);
+        }
+
+        /**
+         * Refreshes the item markup based on the current {@code Carousel#_active} index
+         *
+         * @private
+         */
+        function refreshActive() {
+            var items = that._elements["item"];
+            var indicators = that._elements["indicator"];
+
+            if (items) {
+                if (Array.isArray(items)) {
+                    for (var i = 0; i < items.length; i++) {
+                        if (i === parseInt(that._active)) {
+                            items[i].classList.add("cmp-carousel__item--active");
+                            items[i].removeAttribute("aria-hidden");
+                            indicators[i].classList.add("cmp-carousel__indicator--active");
+                            indicators[i].setAttribute("aria-selected", true);
+                            indicators[i].setAttribute("tabindex", "0");
+                        } else {
+                            items[i].classList.remove("cmp-carousel__item--active");
+                            items[i].setAttribute("aria-hidden", true);
+                            indicators[i].classList.remove("cmp-carousel__indicator--active");
+                            indicators[i].setAttribute("aria-selected", false);
+                            indicators[i].setAttribute("tabindex", "-1");
+                        }
+                    }
+                } else {
+                    // only one item
+                    items.classList.add("cmp-carousel__item--active");
+                    indicators.classList.add("cmp-carousel__indicator--active");
+                }
+            }
+        }
+
+        /**
+         * Focuses the element and prevents scrolling the element into view
+         *
+         * @param {HTMLElement} element Element to focus
+         */
+        function focusWithoutScroll(element) {
+            var x = window.scrollX || window.pageXOffset;
+            var y = window.scrollY || window.pageYOffset;
+            element.focus();
+            window.scrollTo(x, y);
+        }
+
+        /**
+         * Retrieves the next active index, with looping
+         *
+         * @private
+         * @returns {Number} Index of the next carousel item
+         */
+        function getNextIndex() {
+            return that._active === (that._elements["item"].length - 1) ? 0 : that._active + 1;
+        }
+
+        /**
+         * Retrieves the previous active index, with looping
+         *
+         * @private
+         * @returns {Number} Index of the previous carousel item
+         */
+        function getPreviousIndex() {
+            return that._active === 0 ? (that._elements["item"].length - 1) : that._active - 1;
+        }
+
+        /**
+         * Navigates to the item at the provided index
+         *
+         * @private
+         * @param {Number} index The index of the item to navigate to
+         */
+        function navigate(index) {
+            if (index < 0 || index > (that._elements["item"].length - 1)) {
+                return;
+            }
+
+            that._active = index;
+            refreshActive();
+
+            // reset the autoplay transition interval following navigation, if not already hovering the carousel
+            if (that._elements.self.parentElement) {
+                if (that._elements.self.parentElement.querySelector(":hover") !== that._elements.self) {
+                    resetAutoplayInterval();
+                }
+            }
+        }
+
+        /**
+         * Navigates to the item at the provided index and ensures the active indicator gains focus
+         *
+         * @private
+         * @param {Number} index The index of the item to navigate to
+         */
+        function navigateAndFocusIndicator(index) {
+            navigate(index);
+            focusWithoutScroll(that._elements["indicator"][index]);
+        }
+
+        /**
+         * Starts/resets automatic slide transition interval
+         *
+         * @private
+         */
+        function resetAutoplayInterval() {
+            if (that._paused || !that._properties.autoplay) {
+                return;
+            }
+            clearAutoplayInterval();
+            that._autoplayIntervalId = window.setInterval(function() {
+                if (document.visibilityState && document.hidden) {
+                    return;
+                }
+                var indicators = that._elements["indicators"];
+                if (indicators !== document.activeElement && indicators.contains(document.activeElement)) {
+                    // if an indicator has focus, ensure we switch focus following navigation
+                    navigateAndFocusIndicator(getNextIndex());
+                } else {
+                    navigate(getNextIndex());
+                }
+            }, that._properties.delay);
+        }
+
+        /**
+         * Clears/pauses automatic slide transition interval
+         *
+         * @private
+         */
+        function clearAutoplayInterval() {
+            window.clearInterval(that._autoplayIntervalId);
+            that._autoplayIntervalId = null;
+        }
+
+        /**
+         * Sets the disabled state for an action and toggles the appropriate CSS classes
+         *
+         * @private
+         * @param {HTMLElement} action Action to disable
+         * @param {Boolean} [disable] {@code true} to disable, {@code false} to enable
+         */
+        function setActionDisabled(action, disable) {
+            if (!action) {
+                return;
+            }
+            if (disable !== false) {
+                action.disabled = true;
+                action.classList.add("cmp-carousel__action--disabled");
+            } else {
+                action.disabled = false;
+                action.classList.remove("cmp-carousel__action--disabled");
+            }
+        }
+    }
+
+    /**
+     * Reads options data from the Carousel wrapper element, defined via {@code data-cmp-*} data attributes
+     *
+     * @private
+     * @param {HTMLElement} element The Carousel element to read options data from
+     * @returns {Object} The options read from the component data attributes
+     */
+    function readData(element) {
+        var data = element.dataset;
+        var options = [];
+        var capitalized = IS;
+        capitalized = capitalized.charAt(0).toUpperCase() + capitalized.slice(1);
+        var reserved = ["is", "hook" + capitalized];
+
+        for (var key in data) {
+            if (data.hasOwnProperty(key)) {
+                var value = data[key];
+
+                if (key.indexOf(NS) === 0) {
+                    key = key.slice(NS.length);
+                    key = key.charAt(0).toLowerCase() + key.substring(1);
+
+                    if (reserved.indexOf(key) === -1) {
+                        options[key] = value;
+                    }
+                }
+            }
+        }
+
+        return options;
+    }
+
+    /**
+     * Document ready handler and DOM mutation observers. Initializes Carousel components as necessary.
+     *
+     * @private
+     */
+    function onDocumentReady() {
+        var elements = document.querySelectorAll(selectors.self);
+        for (var i = 0; i < elements.length; i++) {
+            new Carousel({ element: elements[i], options: readData(elements[i]) });
+        }
+
+        var MutationObserver = window.MutationObserver || window.WebKitMutationObserver || window.MozMutationObserver;
+        var body             = document.querySelector("body");
+        var observer         = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                // needed for IE
+                var nodesArray = [].slice.call(mutation.addedNodes);
+                if (nodesArray.length > 0) {
+                    nodesArray.forEach(function(addedNode) {
+                        if (addedNode.querySelectorAll) {
+                            var elementsArray = [].slice.call(addedNode.querySelectorAll(selectors.self));
+                            elementsArray.forEach(function(element) {
+                                new Carousel({ element: element, options: readData(element) });
+                            });
+                        }
+                    });
+                }
+            });
+        });
+
+        observer.observe(body, {
+            subtree: true,
+            childList: true,
+            characterData: true
+        });
+    }
+
+    if (document.readyState !== "loading") {
+        onDocumentReady();
+    } else {
+        document.addEventListener("DOMContentLoaded", onDocumentReady);
+    }
+
+}());
+
+/*******************************************************************************
+ * Copyright 2018 Adobe
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ ******************************************************************************/
+(function() {
+    "use strict";
+
+    var dataLayerEnabled;
+    var dataLayer;
+
+    var NS = "cmp";
+    var IS = "carousel";
+
+    var keyCodes = {
+        SPACE: 32,
+        END: 35,
+        HOME: 36,
+        ARROW_LEFT: 37,
+        ARROW_UP: 38,
+        ARROW_RIGHT: 39,
+        ARROW_DOWN: 40
+    };
+
+    var selectors = {
+        self: "[data-" + NS + '-is="' + IS + '"]'
+    };
+
+    var properties = {
+        /**
+         * Determines whether the Carousel will automatically transition between slides
+         *
+         * @memberof Carousel
+         * @type {Boolean}
+         * @default false
+         */
+        "autoplay": {
+            "default": false,
+            "transform": function(value) {
+                return !(value === null || typeof value === "undefined");
+            }
+        },
+        /**
+         * Duration (in milliseconds) before automatically transitioning to the next slide
+         *
+         * @memberof Carousel
+         * @type {Number}
+         * @default 5000
+         */
+        "delay": {
+            "default": 5000,
+            "transform": function(value) {
+                value = parseFloat(value);
+                return !isNaN(value) ? value : null;
+            }
+        },
+        /**
+         * Determines whether automatic pause on hovering the carousel is disabled
+         *
+         * @memberof Carousel
+         * @type {Boolean}
+         * @default false
+         */
+        "autopauseDisabled": {
+            "default": false,
+            "transform": function(value) {
+                return !(value === null || typeof value === "undefined");
+            }
+        }
+    };
+
+    /**
+     * Carousel Configuration
+     *
+     * @typedef {Object} CarouselConfig Represents a Carousel configuration
+     * @property {HTMLElement} element The HTMLElement representing the Carousel
+     * @property {Object} options The Carousel options
+     */
+
+    /**
+     * Carousel
+     *
+     * @class Carousel
+     * @classdesc An interactive Carousel component for navigating a list of generic items
+     * @param {CarouselConfig} config The Carousel configuration
+     */
+    function Carousel(config) {
+        var that = this;
+
+        if (config && config.element) {
+            init(config);
+        }
+
+        /**
+         * Initializes the Carousel
+         *
+         * @private
+         * @param {CarouselConfig} config The Carousel configuration
+         */
+        function init(config) {
+            // prevents multiple initialization
+            config.element.removeAttribute("data-" + NS + "-is");
+
+            setupProperties(config.options);
+            cacheElements(config.element);
+
+            that._active = 0;
+            that._paused = false;
+
+            if (that._elements.item) {
+                refreshActive();
+                bindEvents();
+                resetAutoplayInterval();
+                refreshPlayPauseActions();
+            }
+
+            // TODO: This section is only relevant in edit mode and should move to the editor clientLib
+            if (window.Granite && window.Granite.author && window.Granite.author.MessageChannel) {
+                /*
+                 * Editor message handling:
+                 * - subscribe to "cmp.panelcontainer" message requests sent by the editor frame
+                 * - check that the message data panel container type is correct and that the id (path) matches this specific Carousel component
+                 * - if so, route the "navigate" operation to enact a navigation of the Carousel based on index data
+                 */
+                window.CQ = window.CQ || {};
+                window.CQ.CoreComponents = window.CQ.CoreComponents || {};
+                window.CQ.CoreComponents.MESSAGE_CHANNEL = window.CQ.CoreComponents.MESSAGE_CHANNEL || new window.Granite.author.MessageChannel("cqauthor", window);
+                window.CQ.CoreComponents.MESSAGE_CHANNEL.subscribeRequestMessage("cmp.panelcontainer", function(message) {
+                    if (message.data && message.data.type === "cmp-carousel" && message.data.id === that._elements.self.dataset["cmpPanelcontainerId"]) {
+                        if (message.data.operation === "navigate") {
+                            navigate(message.data.index);
+                        }
+                    }
+                });
+            }
+        }
+
+        /**
+         * Caches the Carousel elements as defined via the {@code data-carousel-hook="ELEMENT_NAME"} markup API
+         *
+         * @private
+         * @param {HTMLElement} wrapper The Carousel wrapper element
+         */
+        function cacheElements(wrapper) {
+            that._elements = {};
+            that._elements.self = wrapper;
+            var hooks = that._elements.self.querySelectorAll("[data-" + NS + "-hook-" + IS + "]");
+
+            for (var i = 0; i < hooks.length; i++) {
+                var hook = hooks[i];
+                var capitalized = IS;
+                capitalized = capitalized.charAt(0).toUpperCase() + capitalized.slice(1);
+                var key = hook.dataset[NS + "Hook" + capitalized];
+                if (that._elements[key]) {
+                    if (!Array.isArray(that._elements[key])) {
+                        var tmp = that._elements[key];
+                        that._elements[key] = [tmp];
+                    }
+                    that._elements[key].push(hook);
+                } else {
+                    that._elements[key] = hook;
+                }
+            }
+        }
+
+        /**
+         * Sets up properties for the Carousel based on the passed options.
+         *
+         * @private
+         * @param {Object} options The Carousel options
+         */
+        function setupProperties(options) {
+            that._properties = {};
+
+            for (var key in properties) {
+                if (properties.hasOwnProperty(key)) {
+                    var property = properties[key];
+                    var value = null;
+
+                    if (options && options[key] != null) {
+                        value = options[key];
+
+                        // transform the provided option
+                        if (property && typeof property.transform === "function") {
+                            value = property.transform(value);
+                        }
+                    }
+
+                    if (value === null) {
+                        // value still null, take the property default
+                        value = properties[key]["default"];
+                    }
+
+                    that._properties[key] = value;
+                }
+            }
+        }
+
+        /**
+         * Binds Carousel event handling
+         *
+         * @private
+         */
+        function bindEvents() {
+            if (that._elements["previous"]) {
+                that._elements["previous"].addEventListener("click", function() {
+                    var index = getPreviousIndex();
+                    navigate(index);
+                    if (dataLayerEnabled) {
+                        dataLayer.push({
+                            event: "cmp:show",
+                            eventInfo: {
+                                path: "component." + getDataLayerId(that._elements.item[index])
+                            }
+                        });
+                    }
+                });
+            }
+
+            if (that._elements["next"]) {
+                that._elements["next"].addEventListener("click", function() {
+                    var index = getNextIndex();
+                    navigate(index);
+                    if (dataLayerEnabled) {
+                        dataLayer.push({
+                            event: "cmp:show",
+                            eventInfo: {
+                                path: "component." + getDataLayerId(that._elements.item[index])
+                            }
+                        });
+                    }
+                });
+            }
+
+            var indicators = that._elements["indicator"];
+            if (indicators) {
+                for (var i = 0; i < indicators.length; i++) {
+                    (function(index) {
+                        indicators[i].addEventListener("click", function(event) {
+                            navigateAndFocusIndicator(index);
+                        });
+                    })(i);
+                }
+            }
+
+            if (that._elements["pause"]) {
+                if (that._properties.autoplay) {
+                    that._elements["pause"].addEventListener("click", onPauseClick);
+                }
+            }
+
+            if (that._elements["play"]) {
+                if (that._properties.autoplay) {
+                    that._elements["play"].addEventListener("click", onPlayClick);
+                }
+            }
+
+            that._elements.self.addEventListener("keydown", onKeyDown);
+
+            if (!that._properties.autopauseDisabled) {
+                that._elements.self.addEventListener("mouseenter", onMouseEnter);
+                that._elements.self.addEventListener("mouseleave", onMouseLeave);
+            }
+        }
+
+        /**
+         * Handles carousel keydown events
+         *
+         * @private
+         * @param {Object} event The keydown event
+         */
+        function onKeyDown(event) {
+            var index = that._active;
+            var lastIndex = that._elements["indicator"].length - 1;
+
+            switch (event.keyCode) {
+                case keyCodes.ARROW_LEFT:
+                case keyCodes.ARROW_UP:
+                    event.preventDefault();
+                    if (index > 0) {
+                        navigateAndFocusIndicator(index - 1);
+                    }
+                    break;
+                case keyCodes.ARROW_RIGHT:
+                case keyCodes.ARROW_DOWN:
+                    event.preventDefault();
+                    if (index < lastIndex) {
+                        navigateAndFocusIndicator(index + 1);
+                    }
+                    break;
+                case keyCodes.HOME:
+                    event.preventDefault();
+                    navigateAndFocusIndicator(0);
+                    break;
+                case keyCodes.END:
+                    event.preventDefault();
+                    navigateAndFocusIndicator(lastIndex);
+                    break;
+                case keyCodes.SPACE:
+                    if (that._properties.autoplay && (event.target !== that._elements["previous"] && event.target !== that._elements["next"])) {
+                        event.preventDefault();
+                        if (!that._paused) {
+                            pause();
+                        } else {
+                            play();
+                        }
+                    }
+                    if (event.target === that._elements["pause"]) {
+                        that._elements["play"].focus();
+                    }
+                    if (event.target === that._elements["play"]) {
+                        that._elements["pause"].focus();
+                    }
+                    break;
+                default:
+                    return;
+            }
+        }
+
+        /**
+         * Handles carousel mouseenter events
+         *
+         * @private
+         * @param {Object} event The mouseenter event
+         */
+        function onMouseEnter(event) {
+            clearAutoplayInterval();
+        }
+
+        /**
+         * Handles carousel mouseleave events
+         *
+         * @private
+         * @param {Object} event The mouseleave event
+         */
+        function onMouseLeave(event) {
+            resetAutoplayInterval();
+        }
+
+        /**
+         * Handles pause element click events
+         *
+         * @private
+         * @param {Object} event The click event
+         */
+        function onPauseClick(event) {
+            pause();
+            that._elements["play"].focus();
+        }
+
+        /**
+         * Handles play element click events
+         *
+         * @private
+         * @param {Object} event The click event
+         */
+        function onPlayClick() {
+            play();
+            that._elements["pause"].focus();
+        }
+
+        /**
+         * Pauses the playing of the Carousel. Sets {@code Carousel#_paused} marker.
+         * Only relevant when autoplay is enabled
+         *
+         * @private
+         */
+        function pause() {
+            that._paused = true;
+            clearAutoplayInterval();
+            refreshPlayPauseActions();
+        }
+
+        /**
+         * Enables the playing of the Carousel. Sets {@code Carousel#_paused} marker.
+         * Only relevant when autoplay is enabled
+         *
+         * @private
+         */
+        function play() {
+            that._paused = false;
+
+            // If the Carousel is hovered, don't begin auto transitioning until the next mouse leave event
+            var hovered = false;
+            if (that._elements.self.parentElement) {
+                hovered = that._elements.self.parentElement.querySelector(":hover") === that._elements.self;
+            }
+            if (that._properties.autopauseDisabled || !hovered) {
+                resetAutoplayInterval();
+            }
+
+            refreshPlayPauseActions();
+        }
+
+        /**
+         * Refreshes the play/pause action markup based on the {@code Carousel#_paused} state
+         *
+         * @private
+         */
+        function refreshPlayPauseActions() {
+            setActionDisabled(that._elements["pause"], that._paused);
+            setActionDisabled(that._elements["play"], !that._paused);
+        }
+
+        /**
+         * Refreshes the item markup based on the current {@code Carousel#_active} index
+         *
+         * @private
+         */
+        function refreshActive() {
+            var items = that._elements["item"];
+            var indicators = that._elements["indicator"];
+
+            if (items) {
+                if (Array.isArray(items)) {
+                    for (var i = 0; i < items.length; i++) {
+                        if (i === parseInt(that._active)) {
+                            items[i].classList.add("cmp-carousel__item--active");
+                            items[i].removeAttribute("aria-hidden");
+                            indicators[i].classList.add("cmp-carousel__indicator--active");
+                            indicators[i].setAttribute("aria-selected", true);
+                            indicators[i].setAttribute("tabindex", "0");
+                        } else {
+                            items[i].classList.remove("cmp-carousel__item--active");
+                            items[i].setAttribute("aria-hidden", true);
+                            indicators[i].classList.remove("cmp-carousel__indicator--active");
+                            indicators[i].setAttribute("aria-selected", false);
+                            indicators[i].setAttribute("tabindex", "-1");
+                        }
+                    }
+                } else {
+                    // only one item
+                    items.classList.add("cmp-carousel__item--active");
+                    indicators.classList.add("cmp-carousel__indicator--active");
+                }
+            }
+        }
+
+        /**
+         * Focuses the element and prevents scrolling the element into view
+         *
+         * @param {HTMLElement} element Element to focus
+         */
+        function focusWithoutScroll(element) {
+            var x = window.scrollX || window.pageXOffset;
+            var y = window.scrollY || window.pageYOffset;
+            element.focus();
+            window.scrollTo(x, y);
+        }
+
+        /**
+         * Retrieves the next active index, with looping
+         *
+         * @private
+         * @returns {Number} Index of the next carousel item
+         */
+        function getNextIndex() {
+            return that._active === (that._elements["item"].length - 1) ? 0 : that._active + 1;
+        }
+
+        /**
+         * Retrieves the previous active index, with looping
+         *
+         * @private
+         * @returns {Number} Index of the previous carousel item
+         */
+        function getPreviousIndex() {
+            return that._active === 0 ? (that._elements["item"].length - 1) : that._active - 1;
+        }
+
+        /**
+         * Navigates to the item at the provided index
+         *
+         * @private
+         * @param {Number} index The index of the item to navigate to
+         */
+        function navigate(index) {
+            if (index < 0 || index > (that._elements["item"].length - 1)) {
+                return;
+            }
+
+            that._active = index;
+            refreshActive();
+
+            if (dataLayerEnabled) {
+                var carouselId = that._elements.self.id;
+                var activeItem = getDataLayerId(that._elements.item[index]);
+                var updatePayload = { component: {} };
+                updatePayload.component[carouselId] = { shownItems: [activeItem] };
+
+                var removePayload = { component: {} };
+                removePayload.component[carouselId] = { shownItems: undefined };
+
+                dataLayer.push(removePayload);
+                dataLayer.push(updatePayload);
+            }
+
+            // reset the autoplay transition interval following navigation, if not already hovering the carousel
+            if (that._elements.self.parentElement) {
+                if (that._elements.self.parentElement.querySelector(":hover") !== that._elements.self) {
+                    resetAutoplayInterval();
+                }
+            }
+        }
+
+        /**
+         * Navigates to the item at the provided index and ensures the active indicator gains focus
+         *
+         * @private
+         * @param {Number} index The index of the item to navigate to
+         */
+        function navigateAndFocusIndicator(index) {
+            navigate(index);
+            focusWithoutScroll(that._elements["indicator"][index]);
+
+            if (dataLayerEnabled) {
+                dataLayer.push({
+                    event: "cmp:show",
+                    eventInfo: {
+                        path: "component." + getDataLayerId(that._elements.item[index])
+                    }
+                });
+            }
+        }
+
+        /**
+         * Starts/resets automatic slide transition interval
+         *
+         * @private
+         */
+        function resetAutoplayInterval() {
+            if (that._paused || !that._properties.autoplay) {
+                return;
+            }
+            clearAutoplayInterval();
+            that._autoplayIntervalId = window.setInterval(function() {
+                if (document.visibilityState && document.hidden) {
+                    return;
+                }
+                var indicators = that._elements["indicators"];
+                if (indicators !== document.activeElement && indicators.contains(document.activeElement)) {
+                    // if an indicator has focus, ensure we switch focus following navigation
+                    navigateAndFocusIndicator(getNextIndex());
+                } else {
+                    navigate(getNextIndex());
+                }
+            }, that._properties.delay);
+        }
+
+        /**
+         * Clears/pauses automatic slide transition interval
+         *
+         * @private
+         */
+        function clearAutoplayInterval() {
+            window.clearInterval(that._autoplayIntervalId);
+            that._autoplayIntervalId = null;
+        }
+
+        /**
+         * Sets the disabled state for an action and toggles the appropriate CSS classes
+         *
+         * @private
+         * @param {HTMLElement} action Action to disable
+         * @param {Boolean} [disable] {@code true} to disable, {@code false} to enable
+         */
+        function setActionDisabled(action, disable) {
+            if (!action) {
+                return;
+            }
+            if (disable !== false) {
+                action.disabled = true;
+                action.classList.add("cmp-carousel__action--disabled");
+            } else {
+                action.disabled = false;
+                action.classList.remove("cmp-carousel__action--disabled");
+            }
+        }
+    }
+
+    /**
+     * Reads options data from the Carousel wrapper element, defined via {@code data-cmp-*} data attributes
+     *
+     * @private
+     * @param {HTMLElement} element The Carousel element to read options data from
+     * @returns {Object} The options read from the component data attributes
+     */
+    function readData(element) {
+        var data = element.dataset;
+        var options = [];
+        var capitalized = IS;
+        capitalized = capitalized.charAt(0).toUpperCase() + capitalized.slice(1);
+        var reserved = ["is", "hook" + capitalized];
+
+        for (var key in data) {
+            if (data.hasOwnProperty(key)) {
+                var value = data[key];
+
+                if (key.indexOf(NS) === 0) {
+                    key = key.slice(NS.length);
+                    key = key.charAt(0).toLowerCase() + key.substring(1);
+
+                    if (reserved.indexOf(key) === -1) {
+                        options[key] = value;
+                    }
+                }
+            }
+        }
+
+        return options;
+    }
+
+    /**
+     * Parses the dataLayer string and returns the ID
+     *
+     * @private
+     * @param {HTMLElement} item the accordion item
+     * @returns {String} dataLayerId or undefined
+     */
+    function getDataLayerId(item) {
+        if (item && item.dataset.cmpDataLayer) {
+            return Object.keys(JSON.parse(item.dataset.cmpDataLayer))[0];
+        } else {
+            return item.id;
+        }
+    }
+
+    /**
+     * Document ready handler and DOM mutation observers. Initializes Carousel components as necessary.
+     *
+     * @private
+     */
+    function onDocumentReady() {
+        dataLayerEnabled = document.body.hasAttribute("data-cmp-data-layer-enabled");
+        dataLayer = (dataLayerEnabled) ? window.adobeDataLayer = window.adobeDataLayer || [] : undefined;
+
+        var elements = document.querySelectorAll(selectors.self);
+        for (var i = 0; i < elements.length; i++) {
+            new Carousel({ element: elements[i], options: readData(elements[i]) });
+        }
+
+        var MutationObserver = window.MutationObserver || window.WebKitMutationObserver || window.MozMutationObserver;
+        var body = document.querySelector("body");
+        var observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                // needed for IE
+                var nodesArray = [].slice.call(mutation.addedNodes);
+                if (nodesArray.length > 0) {
+                    nodesArray.forEach(function(addedNode) {
+                        if (addedNode.querySelectorAll) {
+                            var elementsArray = [].slice.call(addedNode.querySelectorAll(selectors.self));
+                            elementsArray.forEach(function(element) {
+                                new Carousel({ element: element, options: readData(element) });
+                            });
+                        }
+                    });
+                }
+            });
+        });
+
+        observer.observe(body, {
+            subtree: true,
+            childList: true,
+            characterData: true
+        });
+    }
+
+    if (document.readyState !== "loading") {
+        onDocumentReady();
+    } else {
+        document.addEventListener("DOMContentLoaded", onDocumentReady);
+    }
+
+}());
+
+/*******************************************************************************
+ * Copyright 2017 Adobe
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ ******************************************************************************/
+if (window.Element && !Element.prototype.closest) {
+    // eslint valid-jsdoc: "off"
+    Element.prototype.closest =
+        function(s) {
+            "use strict";
+            var matches = (this.document || this.ownerDocument).querySelectorAll(s);
+            var el      = this;
+            var i;
+            do {
+                i = matches.length;
+                while (--i >= 0 && matches.item(i) !== el) {
+                    // continue
+                }
+            } while ((i < 0) && (el = el.parentElement));
+            return el;
+        };
+}
+
+if (window.Element && !Element.prototype.matches) {
+    Element.prototype.matches =
+        Element.prototype.matchesSelector ||
+        Element.prototype.mozMatchesSelector ||
+        Element.prototype.msMatchesSelector ||
+        Element.prototype.oMatchesSelector ||
+        Element.prototype.webkitMatchesSelector ||
+        function(s) {
+            "use strict";
+            var matches = (this.document || this.ownerDocument).querySelectorAll(s);
+            var i       = matches.length;
+            while (--i >= 0 && matches.item(i) !== this) {
+                // continue
+            }
+            return i > -1;
+        };
+}
+
+if (!Object.assign) {
+    Object.assign = function(target, varArgs) { // .length of function is 2
+        "use strict";
+        if (target === null) {
+            throw new TypeError("Cannot convert undefined or null to object");
+        }
+
+        var to = Object(target);
+
+        for (var index = 1; index < arguments.length; index++) {
+            var nextSource = arguments[index];
+
+            if (nextSource !== null) {
+                for (var nextKey in nextSource) {
+                    if (Object.prototype.hasOwnProperty.call(nextSource, nextKey)) {
+                        to[nextKey] = nextSource[nextKey];
+                    }
+                }
+            }
+        }
+        return to;
+    };
+}
+
+(function(arr) {
+    "use strict";
+    arr.forEach(function(item) {
+        if (item.hasOwnProperty("remove")) {
+            return;
+        }
+        Object.defineProperty(item, "remove", {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: function remove() {
+                this.parentNode.removeChild(this);
+            }
+        });
+    });
+})([Element.prototype, CharacterData.prototype, DocumentType.prototype]);
+
+/*******************************************************************************
+ * Copyright 2016 Adobe
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ ******************************************************************************/
+(function() {
+    "use strict";
+
+    var NS = "cmp";
+    var IS = "image";
+
+    var EMPTY_PIXEL = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+    var LAZY_THRESHOLD_DEFAULT = 0;
+    var SRC_URI_TEMPLATE_WIDTH_VAR = "{.width}";
+
+    var selectors = {
+        self: "[data-" + NS + '-is="' + IS + '"]',
+        image: '[data-cmp-hook-image="image"]',
+        map: '[data-cmp-hook-image="map"]',
+        area: '[data-cmp-hook-image="area"]'
+    };
+
+    var lazyLoader = {
+        "cssClass": "cmp-image__image--is-loading",
+        "style": {
+            "height": 0,
+            "padding-bottom": "" // will be replaced with % ratio
+        }
+    };
+
+    var properties = {
+        /**
+         * An array of alternative image widths (in pixels).
+         * Used to replace a {.width} variable in the src property with an optimal width if a URI template is provided.
+         *
+         * @memberof Image
+         * @type {Number[]}
+         * @default []
+         */
+        "widths": {
+            "default": [],
+            "transform": function(value) {
+                var widths = [];
+                value.split(",").forEach(function(item) {
+                    item = parseFloat(item);
+                    if (!isNaN(item)) {
+                        widths.push(item);
+                    }
+                });
+                return widths;
+            }
+        },
+        /**
+         * Indicates whether the image should be rendered lazily.
+         *
+         * @memberof Image
+         * @type {Boolean}
+         * @default false
+         */
+        "lazy": {
+            "default": false,
+            "transform": function(value) {
+                return !(value === null || typeof value === "undefined");
+            }
+        },
+        /**
+         * Indicates image is DynamicMedia image.
+         *
+         * @memberof Image
+         * @type {Boolean}
+         * @default false
+         */
+        "dmimage": {
+            "default": false,
+            "transform": function(value) {
+                return !(value === null || typeof value === "undefined");
+            }
+        },
+        /**
+         * The lazy threshold.
+         * This is the number of pixels, in advance of becoming visible, when an lazy-loading image should begin
+         * to load.
+         *
+         * @memberof Image
+         * @type {Number}
+         * @default 0
+         */
+        "lazythreshold": {
+            "default": 0,
+            "transform": function(value) {
+                var val =  parseInt(value);
+                if (isNaN(val)) {
+                    return LAZY_THRESHOLD_DEFAULT;
+                }
+                return val;
+            }
+        },
+        /**
+         * The image source.
+         *
+         * Can be a simple image source, or a URI template representation that
+         * can be variable expanded - useful for building an image configuration with an alternative width.
+         * e.g. '/path/image.coreimg{.width}.jpeg/1506620954214.jpeg'
+         *
+         * @memberof Image
+         * @type {String}
+         */
+        "src": {
+            "transform": function(value) {
+                return decodeURIComponent(value);
+            }
+        }
+    };
+
+    var devicePixelRatio = window.devicePixelRatio || 1;
+
+    function readData(element) {
+        var data = element.dataset;
+        var options = [];
+        var capitalized = IS;
+        capitalized = capitalized.charAt(0).toUpperCase() + capitalized.slice(1);
+        var reserved = ["is", "hook" + capitalized];
+
+        for (var key in data) {
+            if (data.hasOwnProperty(key)) {
+                var value = data[key];
+
+                if (key.indexOf(NS) === 0) {
+                    key = key.slice(NS.length);
+                    key = key.charAt(0).toLowerCase() + key.substring(1);
+
+                    if (reserved.indexOf(key) === -1) {
+                        options[key] = value;
+                    }
+                }
+            }
+        }
+
+        return options;
+    }
+
+    function Image(config) {
+        var that = this;
+
+        var smartCrops = {};
+
+        function init(config) {
+            // prevents multiple initialization
+            config.element.removeAttribute("data-" + NS + "-is");
+
+            setupProperties(config.options);
+            cacheElements(config.element);
+            // check image is DM asset; if true try to make req=set
+            if (config.options.src && config.options.hasOwnProperty("dmimage") && (config.options["smartcroprendition"] === "SmartCrop:Auto")) {
+                var request = new XMLHttpRequest();
+                var url = decodeURIComponent(config.options.src).split(SRC_URI_TEMPLATE_WIDTH_VAR)[0] + "?req=set,json";
+
+
+                request.open("GET", url, false);
+                request.onload = function() {
+                    if (request.status >= 200 && request.status < 400) {
+                        // success status
+                        var responseText = request.responseText;
+                        var rePayload = new RegExp(/^(?:\/\*jsonp\*\/)?\s*([^()]+)\(([\s\S]+),\s*"[0-9]*"\);?$/gmi);
+                        var rePayloadJSON = new RegExp(/^{[\s\S]*}$/gmi);
+                        var resPayload = rePayload.exec(responseText);
+                        var payload;
+                        if (resPayload) {
+                            var payloadStr = resPayload[2];
+                            if (rePayloadJSON.test(payloadStr)) {
+                                payload = JSON.parse(payloadStr);
+                            }
+
+                        }
+                        // check "relation" - only in case of smartcrop preset
+                        if (payload && payload.set.relation && payload.set.relation.length > 0) {
+                            for (var i = 0; i < payload.set.relation.length; i++) {
+                                smartCrops[parseInt(payload.set.relation[i].userdata.SmartCropWidth)] =
+                                    ":" + payload.set.relation[i].userdata.SmartCropDef;
+                            }
+                        }
+                    } else {
+                        // error status
+                    }
+                };
+                request.send();
+            }
+
+            if (!that._elements.noscript) {
+                return;
+            }
+
+            that._elements.container = that._elements.link ? that._elements.link : that._elements.self;
+
+            unwrapNoScript();
+
+            if (that._properties.lazy) {
+                addLazyLoader();
+            }
+
+            if (that._elements.map) {
+                that._elements.image.addEventListener("load", onLoad);
+            }
+
+            window.addEventListener("resize", onWindowResize);
+            ["focus", "click", "load", "transitionend", "animationend", "scroll"].forEach(function(name) {
+                document.addEventListener(name, that.update);
+            });
+
+            that._elements.image.addEventListener("cmp-image-redraw", that.update);
+            that.update();
+        }
+
+        function loadImage() {
+            var hasWidths = (that._properties.widths && that._properties.widths.length > 0) || Object.keys(smartCrops).length > 0;
+            var replacement;
+            if (Object.keys(smartCrops).length > 0) {
+                var optimalWidth = getOptimalWidth(Object.keys(smartCrops));
+                replacement = smartCrops[optimalWidth];
+            } else {
+                replacement = hasWidths ? (that._properties.dmimage ? "" : ".") + getOptimalWidth(that._properties.widths) : "";
+            }
+            var url = that._properties.src.replace(SRC_URI_TEMPLATE_WIDTH_VAR, replacement);
+
+            var imgSrcAttribute = that._elements.image.getAttribute("src");
+            if (imgSrcAttribute === null || imgSrcAttribute === EMPTY_PIXEL) {
+                that._elements.image.setAttribute("src", url);
+                if (!hasWidths) {
+                    window.removeEventListener("scroll", that.update);
+                }
+            }
+
+            if (that._lazyLoaderShowing) {
+                that._elements.image.addEventListener("load", removeLazyLoader);
+            }
+        }
+
+        function getOptimalWidth(widths) {
+            var container = that._elements.self;
+            var containerWidth = container.clientWidth;
+            while (containerWidth === 0 && container.parentNode) {
+                container = container.parentNode;
+                containerWidth = container.clientWidth;
+            }
+            var optimalWidth = containerWidth * devicePixelRatio;
+            var len = widths.length;
+            var key = 0;
+
+            while ((key < len - 1) && (widths[key] < optimalWidth)) {
+                key++;
+            }
+
+            return widths[key].toString();
+        }
+
+        function addLazyLoader() {
+            var width = that._elements.image.getAttribute("width");
+            var height = that._elements.image.getAttribute("height");
+
+            if (width && height) {
+                var ratio = (height / width) * 100;
+                var styles = lazyLoader.style;
+
+                styles["padding-bottom"] = ratio + "%";
+
+                for (var s in styles) {
+                    if (styles.hasOwnProperty(s)) {
+                        that._elements.image.style[s] = styles[s];
+                    }
+                }
+            }
+            that._elements.image.setAttribute("src", EMPTY_PIXEL);
+            that._elements.image.classList.add(lazyLoader.cssClass);
+            that._lazyLoaderShowing = true;
+        }
+
+        function unwrapNoScript() {
+            var markup = decodeNoscript(that._elements.noscript.textContent.trim());
+            var parser = new DOMParser();
+
+            // temporary document avoids requesting the image before removing its src
+            var temporaryDocument = parser.parseFromString(markup, "text/html");
+            var imageElement = temporaryDocument.querySelector(selectors.image);
+            imageElement.removeAttribute("src");
+            that._elements.container.insertBefore(imageElement, that._elements.noscript);
+
+            var mapElement = temporaryDocument.querySelector(selectors.map);
+            if (mapElement) {
+                that._elements.container.insertBefore(mapElement, that._elements.noscript);
+            }
+
+            that._elements.noscript.parentNode.removeChild(that._elements.noscript);
+            if (that._elements.container.matches(selectors.image)) {
+                that._elements.image = that._elements.container;
+            } else {
+                that._elements.image = that._elements.container.querySelector(selectors.image);
+            }
+
+            that._elements.map = that._elements.container.querySelector(selectors.map);
+            that._elements.areas = that._elements.container.querySelectorAll(selectors.area);
+        }
+
+        function removeLazyLoader() {
+            that._elements.image.classList.remove(lazyLoader.cssClass);
+            for (var property in lazyLoader.style) {
+                if (lazyLoader.style.hasOwnProperty(property)) {
+                    that._elements.image.style[property] = "";
+                }
+            }
+            that._elements.image.removeEventListener("load", removeLazyLoader);
+            that._lazyLoaderShowing = false;
+        }
+
+        function isLazyVisible() {
+            if (that._elements.container.offsetParent === null) {
+                return false;
+            }
+
+            var wt = window.pageYOffset;
+            var wb = wt + document.documentElement.clientHeight;
+            var et = that._elements.container.getBoundingClientRect().top + wt;
+            var eb = et + that._elements.container.clientHeight;
+
+            return eb >= wt - that._properties.lazythreshold && et <= wb + that._properties.lazythreshold;
+        }
+
+        function resizeAreas() {
+            if (that._elements.areas && that._elements.areas.length > 0) {
+                for (var i = 0; i < that._elements.areas.length; i++) {
+                    var width = that._elements.image.width;
+                    var height = that._elements.image.height;
+
+                    if (width && height) {
+                        var relcoords = that._elements.areas[i].dataset.cmpRelcoords;
+                        if (relcoords) {
+                            var relativeCoordinates = relcoords.split(",");
+                            var coordinates = new Array(relativeCoordinates.length);
+
+                            for (var j = 0; j < coordinates.length; j++) {
+                                if (j % 2 === 0) {
+                                    coordinates[j] = parseInt(relativeCoordinates[j] * width);
+                                } else {
+                                    coordinates[j] = parseInt(relativeCoordinates[j] * height);
+                                }
+                            }
+
+                            that._elements.areas[i].coords = coordinates;
+                        }
+                    }
+                }
+            }
+        }
+
+        function cacheElements(wrapper) {
+            that._elements = {};
+            that._elements.self = wrapper;
+            var hooks = that._elements.self.querySelectorAll("[data-" + NS + "-hook-" + IS + "]");
+
+            for (var i = 0; i < hooks.length; i++) {
+                var hook = hooks[i];
+                var capitalized = IS;
+                capitalized = capitalized.charAt(0).toUpperCase() + capitalized.slice(1);
+                var key = hook.dataset[NS + "Hook" + capitalized];
+                that._elements[key] = hook;
+            }
+        }
+
+        function setupProperties(options) {
+            that._properties = {};
+
+            for (var key in properties) {
+                if (properties.hasOwnProperty(key)) {
+                    var property = properties[key];
+                    if (options && options[key] != null) {
+                        if (property && typeof property.transform === "function") {
+                            that._properties[key] = property.transform(options[key]);
+                        } else {
+                            that._properties[key] = options[key];
+                        }
+                    } else {
+                        that._properties[key] = properties[key]["default"];
+                    }
+                }
+            }
+        }
+
+        function onWindowResize() {
+            that.update();
+            resizeAreas();
+        }
+
+        function onLoad() {
+            resizeAreas();
+        }
+
+        that.update = function() {
+            if (that._properties.lazy) {
+                if (isLazyVisible()) {
+                    loadImage();
+                }
+            } else {
+                loadImage();
+            }
+        };
+
+        if (config && config.element) {
+            init(config);
+        }
+    }
+
+    function onDocumentReady() {
+        var elements = document.querySelectorAll(selectors.self);
+        for (var i = 0; i < elements.length; i++) {
+            new Image({ element: elements[i], options: readData(elements[i]) });
+        }
+
+        var MutationObserver = window.MutationObserver || window.WebKitMutationObserver || window.MozMutationObserver;
+        var body             = document.querySelector("body");
+        var observer         = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                // needed for IE
+                var nodesArray = [].slice.call(mutation.addedNodes);
+                if (nodesArray.length > 0) {
+                    nodesArray.forEach(function(addedNode) {
+                        if (addedNode.querySelectorAll) {
+                            var elementsArray = [].slice.call(addedNode.querySelectorAll(selectors.self));
+                            elementsArray.forEach(function(element) {
+                                new Image({ element: element, options: readData(element) });
+                            });
+                        }
+                    });
+                }
+            });
+        });
+
+        observer.observe(body, {
+            subtree: true,
+            childList: true,
+            characterData: true
+        });
+    }
+
+    if (document.readyState !== "loading") {
+        onDocumentReady();
+    } else {
+        document.addEventListener("DOMContentLoaded", onDocumentReady);
+    }
+
+    /*
+        on drag & drop of the component into a parsys, noscript's content will be escaped multiple times by the editor which creates
+        the DOM for editing; the HTML parser cannot be used here due to the multiple escaping
+     */
+    function decodeNoscript(text) {
+        text = text.replace(/&(amp;)*lt;/g, "<");
+        text = text.replace(/&(amp;)*gt;/g, ">");
+        return text;
+    }
+
+})();
+
+/*******************************************************************************
+ * Copyright 2016 Adobe
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ ******************************************************************************/
+(function() {
+    "use strict";
+
+    var NS = "cmp";
+    var IS = "formText";
+    var IS_DASH = "form-text";
+
+    var selectors = {
+        self: "[data-" + NS + '-is="' + IS + '"]'
+    };
+
+    var properties = {
+        /**
+         * A validation message to display if there is a type mismatch between the user input and expected input.
+         *
+         * @type {String}
+         */
+        constraintMessage: "",
+        /**
+         * A validation message to display if no input is supplied, but input is expected for the field.
+         *
+         * @type {String}
+         */
+        requiredMessage: ""
+    };
+
+    function readData(element) {
+        var data = element.dataset;
+        var options = [];
+        var capitalized = IS;
+        capitalized = capitalized.charAt(0).toUpperCase() + capitalized.slice(1);
+        var reserved = ["is", "hook" + capitalized];
+
+        for (var key in data) {
+            if (data.hasOwnProperty(key)) {
+                var value = data[key];
+
+                if (key.indexOf(NS) === 0) {
+                    key = key.slice(NS.length);
+                    key = key.charAt(0).toLowerCase() + key.substring(1);
+
+                    if (reserved.indexOf(key) === -1) {
+                        options[key] = value;
+                    }
+                }
+            }
+        }
+
+        return options;
+    }
+
+    function FormText(config) {
+        if (config.element) {
+            // prevents multiple initialization
+            config.element.removeAttribute("data-" + NS + "-is");
+        }
+
+        this._cacheElements(config.element);
+        this._setupProperties(config.options);
+
+        this._elements.input.addEventListener("invalid", this._onInvalid.bind(this));
+        this._elements.input.addEventListener("input", this._onInput.bind(this));
+    }
+
+    FormText.prototype._onInvalid = function(event) {
+        event.target.setCustomValidity("");
+        if (event.target.validity.typeMismatch) {
+            if (this._properties.constraintMessage) {
+                event.target.setCustomValidity(this._properties.constraintMessage);
+            }
+        } else if (event.target.validity.valueMissing) {
+            if (this._properties.requiredMessage) {
+                event.target.setCustomValidity(this._properties.requiredMessage);
+            }
+        }
+    };
+
+    FormText.prototype._onInput = function(event) {
+        event.target.setCustomValidity("");
+    };
+
+    FormText.prototype._cacheElements = function(wrapper) {
+        this._elements = {};
+        this._elements.self = wrapper;
+        var hooks = this._elements.self.querySelectorAll("[data-" + NS + "-hook-" + IS_DASH + "]");
+        for (var i = 0; i < hooks.length; i++) {
+            var hook = hooks[i];
+            var capitalized = IS;
+            capitalized = capitalized.charAt(0).toUpperCase() + capitalized.slice(1);
+            var key = hook.dataset[NS + "Hook" + capitalized];
+            this._elements[key] = hook;
+        }
+    };
+
+    FormText.prototype._setupProperties = function(options) {
+        this._properties = {};
+
+        for (var key in properties) {
+            if (properties.hasOwnProperty(key)) {
+                var property = properties[key];
+                if (options && options[key] != null) {
+                    if (property && typeof property.transform === "function") {
+                        this._properties[key] = property.transform(options[key]);
+                    } else {
+                        this._properties[key] = options[key];
+                    }
+                } else {
+                    this._properties[key] = properties[key]["default"];
+                }
+            }
+        }
+    };
+
+    function onDocumentReady() {
+        var elements = document.querySelectorAll(selectors.self);
+        for (var i = 0; i < elements.length; i++) {
+            new FormText({ element: elements[i], options: readData(elements[i]) });
+        }
+
+        var MutationObserver = window.MutationObserver || window.WebKitMutationObserver || window.MozMutationObserver;
+        var body = document.querySelector("body");
+        var observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                // needed for IE
+                var nodesArray = [].slice.call(mutation.addedNodes);
+                if (nodesArray.length > 0) {
+                    nodesArray.forEach(function(addedNode) {
+                        if (addedNode.querySelectorAll) {
+                            var elementsArray = [].slice.call(addedNode.querySelectorAll(selectors.self));
+                            elementsArray.forEach(function(element) {
+                                new FormText({ element: element, options: readData(element) });
+                            });
+                        }
+                    });
+                }
+            });
+        });
+
+        observer.observe(body, {
+            subtree: true,
+            childList: true,
+            characterData: true
+        });
+    }
+
+    if (document.readyState !== "loading") {
+        onDocumentReady();
+    } else {
+        document.addEventListener("DOMContentLoaded", onDocumentReady);
+    }
+
+})();
+
+/*! jQuery Validation Plugin - v1.19.5 - 5/23/2020
+ * https://jqueryvalidation.org/
+ * Copyright (c) 2020 Jörn Zaefferer; Licensed MIT */
+!function(a){"function"==typeof define&&define.amd?define(["jquery"],a):"object"==typeof module&&module.exports?module.exports=a(require("jquery")):a(jQuery)}(function(a){a.extend(a.fn,{validate:function(b){if(!this.length)return void(b&&b.debug&&window.console&&console.warn("Nothing selected, can't validate, returning nothing."));var c=a.data(this[0],"validator");return c?c:(this.attr("novalidate","novalidate"),c=new a.validator(b,this[0]),a.data(this[0],"validator",c),c.settings.onsubmit&&(this.on("click.validate",":submit",function(b){c.submitButton=b.currentTarget,a(this).hasClass("cancel")&&(c.cancelSubmit=!0),void 0!==a(this).attr("formnovalidate")&&(c.cancelSubmit=!0)}),this.on("submit.validate",function(b){function d(){var d,e;return c.submitButton&&(c.settings.submitHandler||c.formSubmitted)&&(d=a("<input type='hidden'/>").attr("name",c.submitButton.name).val(a(c.submitButton).val()).appendTo(c.currentForm)),!(c.settings.submitHandler&&!c.settings.debug)||(e=c.settings.submitHandler.call(c,c.currentForm,b),d&&d.remove(),void 0!==e&&e)}return c.settings.debug&&b.preventDefault(),c.cancelSubmit?(c.cancelSubmit=!1,d()):c.form()?c.pendingRequest?(c.formSubmitted=!0,!1):d():(c.focusInvalid(),!1)})),c)},valid:function(){var b,c,d;return a(this[0]).is("form")?b=this.validate().form():(d=[],b=!0,c=a(this[0].form).validate(),this.each(function(){b=c.element(this)&&b,b||(d=d.concat(c.errorList))}),c.errorList=d),b},rules:function(b,c){var d,e,f,g,h,i,j=this[0],k="undefined"!=typeof this.attr("contenteditable")&&"false"!==this.attr("contenteditable");if(null!=j&&(!j.form&&k&&(j.form=this.closest("form")[0],j.name=this.attr("name")),null!=j.form)){if(b)switch(d=a.data(j.form,"validator").settings,e=d.rules,f=a.validator.staticRules(j),b){case"add":a.extend(f,a.validator.normalizeRule(c)),delete f.messages,e[j.name]=f,c.messages&&(d.messages[j.name]=a.extend(d.messages[j.name],c.messages));break;case"remove":return c?(i={},a.each(c.split(/\s/),function(a,b){i[b]=f[b],delete f[b]}),i):(delete e[j.name],f)}return g=a.validator.normalizeRules(a.extend({},a.validator.classRules(j),a.validator.attributeRules(j),a.validator.dataRules(j),a.validator.staticRules(j)),j),g.required&&(h=g.required,delete g.required,g=a.extend({required:h},g)),g.remote&&(h=g.remote,delete g.remote,g=a.extend(g,{remote:h})),g}}});var b=function(a){return a.replace(/^[\s\uFEFF\xA0]+|[\s\uFEFF\xA0]+$/g,"")};a.extend(a.expr.pseudos||a.expr[":"],{blank:function(c){return!b(""+a(c).val())},filled:function(c){var d=a(c).val();return null!==d&&!!b(""+d)},unchecked:function(b){return!a(b).prop("checked")}}),a.validator=function(b,c){this.settings=a.extend(!0,{},a.validator.defaults,b),this.currentForm=c,this.init()},a.validator.format=function(b,c){return 1===arguments.length?function(){var c=a.makeArray(arguments);return c.unshift(b),a.validator.format.apply(this,c)}:void 0===c?b:(arguments.length>2&&c.constructor!==Array&&(c=a.makeArray(arguments).slice(1)),c.constructor!==Array&&(c=[c]),a.each(c,function(a,c){b=b.replace(new RegExp("\\{"+a+"\\}","g"),function(){return c})}),b)},a.extend(a.validator,{defaults:{messages:{},groups:{},rules:{},errorClass:"error",pendingClass:"pending",validClass:"valid",errorElement:"label",focusCleanup:!1,focusInvalid:!0,errorContainer:a([]),errorLabelContainer:a([]),onsubmit:!0,ignore:":hidden",ignoreTitle:!1,onfocusin:function(a){this.lastActive=a,this.settings.focusCleanup&&(this.settings.unhighlight&&this.settings.unhighlight.call(this,a,this.settings.errorClass,this.settings.validClass),this.hideThese(this.errorsFor(a)))},onfocusout:function(a){this.checkable(a)||!(a.name in this.submitted)&&this.optional(a)||this.element(a)},onkeyup:function(b,c){var d=[16,17,18,20,35,36,37,38,39,40,45,144,225];9===c.which&&""===this.elementValue(b)||a.inArray(c.keyCode,d)!==-1||(b.name in this.submitted||b.name in this.invalid)&&this.element(b)},onclick:function(a){a.name in this.submitted?this.element(a):a.parentNode.name in this.submitted&&this.element(a.parentNode)},highlight:function(b,c,d){"radio"===b.type?this.findByName(b.name).addClass(c).removeClass(d):a(b).addClass(c).removeClass(d)},unhighlight:function(b,c,d){"radio"===b.type?this.findByName(b.name).removeClass(c).addClass(d):a(b).removeClass(c).addClass(d)}},setDefaults:function(b){a.extend(a.validator.defaults,b)},messages:{required:"This field is required.",remote:"Please fix this field.",email:"Please enter a valid email address.",url:"Please enter a valid URL.",date:"Please enter a valid date.",dateISO:"Please enter a valid date (ISO).",number:"Please enter a valid number.",digits:"Please enter only digits.",equalTo:"Please enter the same value again.",maxlength:a.validator.format("Please enter no more than {0} characters."),minlength:a.validator.format("Please enter at least {0} characters."),rangelength:a.validator.format("Please enter a value between {0} and {1} characters long."),range:a.validator.format("Please enter a value between {0} and {1}."),max:a.validator.format("Please enter a value less than or equal to {0}."),min:a.validator.format("Please enter a value greater than or equal to {0}."),step:a.validator.format("Please enter a multiple of {0}.")},autoCreateRanges:!1,prototype:{init:function(){function b(b){var c="undefined"!=typeof a(this).attr("contenteditable")&&"false"!==a(this).attr("contenteditable");if(!this.form&&c&&(this.form=a(this).closest("form")[0],this.name=a(this).attr("name")),d===this.form){var e=a.data(this.form,"validator"),f="on"+b.type.replace(/^validate/,""),g=e.settings;g[f]&&!a(this).is(g.ignore)&&g[f].call(e,this,b)}}this.labelContainer=a(this.settings.errorLabelContainer),this.errorContext=this.labelContainer.length&&this.labelContainer||a(this.currentForm),this.containers=a(this.settings.errorContainer).add(this.settings.errorLabelContainer),this.submitted={},this.valueCache={},this.pendingRequest=0,this.pending={},this.invalid={},this.reset();var c,d=this.currentForm,e=this.groups={};a.each(this.settings.groups,function(b,c){"string"==typeof c&&(c=c.split(/\s/)),a.each(c,function(a,c){e[c]=b})}),c=this.settings.rules,a.each(c,function(b,d){c[b]=a.validator.normalizeRule(d)}),a(this.currentForm).on("focusin.validate focusout.validate keyup.validate",":text, [type='password'], [type='file'], select, textarea, [type='number'], [type='search'], [type='tel'], [type='url'], [type='email'], [type='datetime'], [type='date'], [type='month'], [type='week'], [type='time'], [type='datetime-local'], [type='range'], [type='color'], [type='radio'], [type='checkbox'], [contenteditable], [type='button']",b).on("click.validate","select, option, [type='radio'], [type='checkbox']",b),this.settings.invalidHandler&&a(this.currentForm).on("invalid-form.validate",this.settings.invalidHandler)},form:function(){return this.checkForm(),a.extend(this.submitted,this.errorMap),this.invalid=a.extend({},this.errorMap),this.valid()||a(this.currentForm).triggerHandler("invalid-form",[this]),this.showErrors(),this.valid()},checkForm:function(){this.prepareForm();for(var a=0,b=this.currentElements=this.elements();b[a];a++)this.check(b[a]);return this.valid()},element:function(b){var c,d,e=this.clean(b),f=this.validationTargetFor(e),g=this,h=!0;return void 0===f?delete this.invalid[e.name]:(this.prepareElement(f),this.currentElements=a(f),d=this.groups[f.name],d&&a.each(this.groups,function(a,b){b===d&&a!==f.name&&(e=g.validationTargetFor(g.clean(g.findByName(a))),e&&e.name in g.invalid&&(g.currentElements.push(e),h=g.check(e)&&h))}),c=this.check(f)!==!1,h=h&&c,c?this.invalid[f.name]=!1:this.invalid[f.name]=!0,this.numberOfInvalids()||(this.toHide=this.toHide.add(this.containers)),this.showErrors(),a(b).attr("aria-invalid",!c)),h},showErrors:function(b){if(b){var c=this;a.extend(this.errorMap,b),this.errorList=a.map(this.errorMap,function(a,b){return{message:a,element:c.findByName(b)[0]}}),this.successList=a.grep(this.successList,function(a){return!(a.name in b)})}this.settings.showErrors?this.settings.showErrors.call(this,this.errorMap,this.errorList):this.defaultShowErrors()},resetForm:function(){a.fn.resetForm&&a(this.currentForm).resetForm(),this.invalid={},this.submitted={},this.prepareForm(),this.hideErrors();var b=this.elements().removeData("previousValue").removeAttr("aria-invalid");this.resetElements(b)},resetElements:function(a){var b;if(this.settings.unhighlight)for(b=0;a[b];b++)this.settings.unhighlight.call(this,a[b],this.settings.errorClass,""),this.findByName(a[b].name).removeClass(this.settings.validClass);else a.removeClass(this.settings.errorClass).removeClass(this.settings.validClass)},numberOfInvalids:function(){return this.objectLength(this.invalid)},objectLength:function(a){var b,c=0;for(b in a)void 0!==a[b]&&null!==a[b]&&a[b]!==!1&&c++;return c},hideErrors:function(){this.hideThese(this.toHide)},hideThese:function(a){a.not(this.containers).text(""),this.addWrapper(a).hide()},valid:function(){return 0===this.size()},size:function(){return this.errorList.length},focusInvalid:function(){if(this.settings.focusInvalid)try{a(this.findLastActive()||this.errorList.length&&this.errorList[0].element||[]).filter(":visible").trigger("focus").trigger("focusin")}catch(b){}},findLastActive:function(){var b=this.lastActive;return b&&1===a.grep(this.errorList,function(a){return a.element.name===b.name}).length&&b},elements:function(){var b=this,c={};return a(this.currentForm).find("input, select, textarea, [contenteditable]").not(":submit, :reset, :image, :disabled").not(this.settings.ignore).filter(function(){var d=this.name||a(this).attr("name"),e="undefined"!=typeof a(this).attr("contenteditable")&&"false"!==a(this).attr("contenteditable");return!d&&b.settings.debug&&window.console&&console.error("%o has no name assigned",this),e&&(this.form=a(this).closest("form")[0],this.name=d),this.form===b.currentForm&&(!(d in c||!b.objectLength(a(this).rules()))&&(c[d]=!0,!0))})},clean:function(b){return a(b)[0]},errors:function(){var b=this.settings.errorClass.split(" ").join(".");return a(this.settings.errorElement+"."+b,this.errorContext)},resetInternals:function(){this.successList=[],this.errorList=[],this.errorMap={},this.toShow=a([]),this.toHide=a([])},reset:function(){this.resetInternals(),this.currentElements=a([])},prepareForm:function(){this.reset(),this.toHide=this.errors().add(this.containers)},prepareElement:function(a){this.reset(),this.toHide=this.errorsFor(a)},elementValue:function(b){var c,d,e=a(b),f=b.type,g="undefined"!=typeof e.attr("contenteditable")&&"false"!==e.attr("contenteditable");return"radio"===f||"checkbox"===f?this.findByName(b.name).filter(":checked").val():"number"===f&&"undefined"!=typeof b.validity?b.validity.badInput?"NaN":e.val():(c=g?e.text():e.val(),"file"===f?"C:\\fakepath\\"===c.substr(0,12)?c.substr(12):(d=c.lastIndexOf("/"),d>=0?c.substr(d+1):(d=c.lastIndexOf("\\"),d>=0?c.substr(d+1):c)):"string"==typeof c?c.replace(/\r/g,""):c)},check:function(b){b=this.validationTargetFor(this.clean(b));var c,d,e,f,g=a(b).rules(),h=a.map(g,function(a,b){return b}).length,i=!1,j=this.elementValue(b);"function"==typeof g.normalizer?f=g.normalizer:"function"==typeof this.settings.normalizer&&(f=this.settings.normalizer),f&&(j=f.call(b,j),delete g.normalizer);for(d in g){e={method:d,parameters:g[d]};try{if(c=a.validator.methods[d].call(this,j,b,e.parameters),"dependency-mismatch"===c&&1===h){i=!0;continue}if(i=!1,"pending"===c)return void(this.toHide=this.toHide.not(this.errorsFor(b)));if(!c)return this.formatAndAdd(b,e),!1}catch(k){throw this.settings.debug&&window.console&&console.log("Exception occurred when checking element "+b.id+", check the '"+e.method+"' method.",k),k instanceof TypeError&&(k.message+=".  Exception occurred when checking element "+b.id+", check the '"+e.method+"' method."),k}}if(!i)return this.objectLength(g)&&this.successList.push(b),!0},customDataMessage:function(b,c){return a(b).data("msg"+c.charAt(0).toUpperCase()+c.substring(1).toLowerCase())||a(b).data("msg")},customMessage:function(a,b){var c=this.settings.messages[a];return c&&(c.constructor===String?c:c[b])},findDefined:function(){for(var a=0;a<arguments.length;a++)if(void 0!==arguments[a])return arguments[a]},defaultMessage:function(b,c){"string"==typeof c&&(c={method:c});var d=this.findDefined(this.customMessage(b.name,c.method),this.customDataMessage(b,c.method),!this.settings.ignoreTitle&&b.title||void 0,a.validator.messages[c.method],"<strong>Warning: No message defined for "+b.name+"</strong>"),e=/\$?\{(\d+)\}/g;return"function"==typeof d?d=d.call(this,c.parameters,b):e.test(d)&&(d=a.validator.format(d.replace(e,"{$1}"),c.parameters)),d},formatAndAdd:function(a,b){var c=this.defaultMessage(a,b);this.errorList.push({message:c,element:a,method:b.method}),this.errorMap[a.name]=c,this.submitted[a.name]=c},addWrapper:function(a){return this.settings.wrapper&&(a=a.add(a.parent(this.settings.wrapper))),a},defaultShowErrors:function(){var a,b,c;for(a=0;this.errorList[a];a++)c=this.errorList[a],this.settings.highlight&&this.settings.highlight.call(this,c.element,this.settings.errorClass,this.settings.validClass),this.showLabel(c.element,c.message);if(this.errorList.length&&(this.toShow=this.toShow.add(this.containers)),this.settings.success)for(a=0;this.successList[a];a++)this.showLabel(this.successList[a]);if(this.settings.unhighlight)for(a=0,b=this.validElements();b[a];a++)this.settings.unhighlight.call(this,b[a],this.settings.errorClass,this.settings.validClass);this.toHide=this.toHide.not(this.toShow),this.hideErrors(),this.addWrapper(this.toShow).show()},validElements:function(){return this.currentElements.not(this.invalidElements())},invalidElements:function(){return a(this.errorList).map(function(){return this.element})},showLabel:function(b,c){var d,e,f,g,h=this.errorsFor(b),i=this.idOrName(b),j=a(b).attr("aria-describedby");h.length?(h.removeClass(this.settings.validClass).addClass(this.settings.errorClass),h.html(c)):(h=a("<"+this.settings.errorElement+">").attr("id",i+"-error").addClass(this.settings.errorClass).html(c||""),d=h,this.settings.wrapper&&(d=h.hide().show().wrap("<"+this.settings.wrapper+"/>").parent()),this.labelContainer.length?this.labelContainer.append(d):this.settings.errorPlacement?this.settings.errorPlacement.call(this,d,a(b)):d.insertAfter(b),h.is("label")?h.attr("for",i):0===h.parents("label[for='"+this.escapeCssMeta(i)+"']").length&&(f=h.attr("id"),j?j.match(new RegExp("\\b"+this.escapeCssMeta(f)+"\\b"))||(j+=" "+f):j=f,a(b).attr("aria-describedby",j),e=this.groups[b.name],e&&(g=this,a.each(g.groups,function(b,c){c===e&&a("[name='"+g.escapeCssMeta(b)+"']",g.currentForm).attr("aria-describedby",h.attr("id"))})))),!c&&this.settings.success&&(h.text(""),"string"==typeof this.settings.success?h.addClass(this.settings.success):this.settings.success(h,b)),this.toShow=this.toShow.add(h)},errorsFor:function(b){var c=this.escapeCssMeta(this.idOrName(b)),d=a(b).attr("aria-describedby"),e="label[for='"+c+"'], label[for='"+c+"'] *";return d&&(e=e+", #"+this.escapeCssMeta(d).replace(/\s+/g,", #")),this.errors().filter(e)},escapeCssMeta:function(a){return a.replace(/([\\!"#$%&'()*+,.\/:;<=>?@\[\]^`{|}~])/g,"\\$1")},idOrName:function(a){return this.groups[a.name]||(this.checkable(a)?a.name:a.id||a.name)},validationTargetFor:function(b){return this.checkable(b)&&(b=this.findByName(b.name)),a(b).not(this.settings.ignore)[0]},checkable:function(a){return/radio|checkbox/i.test(a.type)},findByName:function(b){return a(this.currentForm).find("[name='"+this.escapeCssMeta(b)+"']")},getLength:function(b,c){switch(c.nodeName.toLowerCase()){case"select":return a("option:selected",c).length;case"input":if(this.checkable(c))return this.findByName(c.name).filter(":checked").length}return b.length},depend:function(a,b){return!this.dependTypes[typeof a]||this.dependTypes[typeof a](a,b)},dependTypes:{"boolean":function(a){return a},string:function(b,c){return!!a(b,c.form).length},"function":function(a,b){return a(b)}},optional:function(b){var c=this.elementValue(b);return!a.validator.methods.required.call(this,c,b)&&"dependency-mismatch"},startRequest:function(b){this.pending[b.name]||(this.pendingRequest++,a(b).addClass(this.settings.pendingClass),this.pending[b.name]=!0)},stopRequest:function(b,c){this.pendingRequest--,this.pendingRequest<0&&(this.pendingRequest=0),delete this.pending[b.name],a(b).removeClass(this.settings.pendingClass),c&&0===this.pendingRequest&&this.formSubmitted&&this.form()?(a(this.currentForm).submit(),this.submitButton&&a("input:hidden[name='"+this.submitButton.name+"']",this.currentForm).remove(),this.formSubmitted=!1):!c&&0===this.pendingRequest&&this.formSubmitted&&(a(this.currentForm).triggerHandler("invalid-form",[this]),this.formSubmitted=!1)},previousValue:function(b,c){return c="string"==typeof c&&c||"remote",a.data(b,"previousValue")||a.data(b,"previousValue",{old:null,valid:!0,message:this.defaultMessage(b,{method:c})})},destroy:function(){this.resetForm(),a(this.currentForm).off(".validate").removeData("validator").find(".validate-equalTo-blur").off(".validate-equalTo").removeClass("validate-equalTo-blur").find(".validate-lessThan-blur").off(".validate-lessThan").removeClass("validate-lessThan-blur").find(".validate-lessThanEqual-blur").off(".validate-lessThanEqual").removeClass("validate-lessThanEqual-blur").find(".validate-greaterThanEqual-blur").off(".validate-greaterThanEqual").removeClass("validate-greaterThanEqual-blur").find(".validate-greaterThan-blur").off(".validate-greaterThan").removeClass("validate-greaterThan-blur")}},classRuleSettings:{required:{required:!0},email:{email:!0},url:{url:!0},date:{date:!0},dateISO:{dateISO:!0},number:{number:!0},digits:{digits:!0},creditcard:{creditcard:!0}},addClassRules:function(b,c){b.constructor===String?this.classRuleSettings[b]=c:a.extend(this.classRuleSettings,b)},classRules:function(b){var c={},d=a(b).attr("class");return d&&a.each(d.split(" "),function(){this in a.validator.classRuleSettings&&a.extend(c,a.validator.classRuleSettings[this])}),c},normalizeAttributeRule:function(a,b,c,d){/min|max|step/.test(c)&&(null===b||/number|range|text/.test(b))&&(d=Number(d),isNaN(d)&&(d=void 0)),d||0===d?a[c]=d:b===c&&"range"!==b&&(a[c]=!0)},attributeRules:function(b){var c,d,e={},f=a(b),g=b.getAttribute("type");for(c in a.validator.methods)"required"===c?(d=b.getAttribute(c),""===d&&(d=!0),d=!!d):d=f.attr(c),this.normalizeAttributeRule(e,g,c,d);return e.maxlength&&/-1|2147483647|524288/.test(e.maxlength)&&delete e.maxlength,e},dataRules:function(b){var c,d,e={},f=a(b),g=b.getAttribute("type");for(c in a.validator.methods)d=f.data("rule"+c.charAt(0).toUpperCase()+c.substring(1).toLowerCase()),""===d&&(d=!0),this.normalizeAttributeRule(e,g,c,d);return e},staticRules:function(b){var c={},d=a.data(b.form,"validator");return d.settings.rules&&(c=a.validator.normalizeRule(d.settings.rules[b.name])||{}),c},normalizeRules:function(b,c){return a.each(b,function(d,e){if(e===!1)return void delete b[d];if(e.param||e.depends){var f=!0;switch(typeof e.depends){case"string":f=!!a(e.depends,c.form).length;break;case"function":f=e.depends.call(c,c)}f?b[d]=void 0===e.param||e.param:(a.data(c.form,"validator").resetElements(a(c)),delete b[d])}}),a.each(b,function(d,e){b[d]=a.isFunction(e)&&"normalizer"!==d?e(c):e}),a.each(["minlength","maxlength"],function(){b[this]&&(b[this]=Number(b[this]))}),a.each(["rangelength","range"],function(){var c;b[this]&&(a.isArray(b[this])?b[this]=[Number(b[this][0]),Number(b[this][1])]:"string"==typeof b[this]&&(c=b[this].replace(/[\[\]]/g,"").split(/[\s,]+/),b[this]=[Number(c[0]),Number(c[1])]))}),a.validator.autoCreateRanges&&(null!=b.min&&null!=b.max&&(b.range=[b.min,b.max],delete b.min,delete b.max),null!=b.minlength&&null!=b.maxlength&&(b.rangelength=[b.minlength,b.maxlength],delete b.minlength,delete b.maxlength)),b},normalizeRule:function(b){if("string"==typeof b){var c={};a.each(b.split(/\s/),function(){c[this]=!0}),b=c}return b},addMethod:function(b,c,d){a.validator.methods[b]=c,a.validator.messages[b]=void 0!==d?d:a.validator.messages[b],c.length<3&&a.validator.addClassRules(b,a.validator.normalizeRule(b))},methods:{required:function(b,c,d){if(!this.depend(d,c))return"dependency-mismatch";if("select"===c.nodeName.toLowerCase()){var e=a(c).val();return e&&e.length>0}return this.checkable(c)?this.getLength(b,c)>0:void 0!==b&&null!==b&&b.length>0},email:function(a,b){return this.optional(b)||/^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(a)},url:function(a,b){return this.optional(b)||/^(?:(?:(?:https?|ftp):)?\/\/)(?:\S+(?::\S*)?@)?(?:(?!(?:10|127)(?:\.\d{1,3}){3})(?!(?:169\.254|192\.168)(?:\.\d{1,3}){2})(?!172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?:[1-9]\d?|1\d\d|2[01]\d|22[0-3])(?:\.(?:1?\d{1,2}|2[0-4]\d|25[0-5])){2}(?:\.(?:[1-9]\d?|1\d\d|2[0-4]\d|25[0-4]))|(?:(?:[a-z\u00a1-\uffff0-9]-*)*[a-z\u00a1-\uffff0-9]+)(?:\.(?:[a-z\u00a1-\uffff0-9]-*)*[a-z\u00a1-\uffff0-9]+)*(?:\.(?:[a-z\u00a1-\uffff]{2,})).?)(?::\d{2,5})?(?:[\/?#]\S*)?$/i.test(a)},date:function(){var a=!1;return function(b,c){return a||(a=!0,this.settings.debug&&window.console&&console.warn("The `date` method is deprecated and will be removed in version '2.0.0'.\nPlease don't use it, since it relies on the Date constructor, which\nbehaves very differently across browsers and locales. Use `dateISO`\ninstead or one of the locale specific methods in `localizations/`\nand `additional-methods.js`.")),this.optional(c)||!/Invalid|NaN/.test(new Date(b).toString())}}(),dateISO:function(a,b){return this.optional(b)||/^\d{4}[\/\-](0?[1-9]|1[012])[\/\-](0?[1-9]|[12][0-9]|3[01])$/.test(a)},number:function(a,b){return this.optional(b)||/^(?:-?\d+|-?\d{1,3}(?:,\d{3})+)?(?:\.\d+)?$/.test(a)},digits:function(a,b){return this.optional(b)||/^\d+$/.test(a)},minlength:function(b,c,d){var e=a.isArray(b)?b.length:this.getLength(b,c);return this.optional(c)||e>=d},maxlength:function(b,c,d){var e=a.isArray(b)?b.length:this.getLength(b,c);return this.optional(c)||e<=d},rangelength:function(b,c,d){var e=a.isArray(b)?b.length:this.getLength(b,c);return this.optional(c)||e>=d[0]&&e<=d[1]},min:function(a,b,c){return this.optional(b)||a>=c},max:function(a,b,c){return this.optional(b)||a<=c},range:function(a,b,c){return this.optional(b)||a>=c[0]&&a<=c[1]},step:function(b,c,d){var e,f=a(c).attr("type"),g="Step attribute on input type "+f+" is not supported.",h=["text","number","range"],i=new RegExp("\\b"+f+"\\b"),j=f&&!i.test(h.join()),k=function(a){var b=(""+a).match(/(?:\.(\d+))?$/);return b&&b[1]?b[1].length:0},l=function(a){return Math.round(a*Math.pow(10,e))},m=!0;if(j)throw new Error(g);return e=k(d),(k(b)>e||l(b)%l(d)!==0)&&(m=!1),this.optional(c)||m},equalTo:function(b,c,d){var e=a(d);return this.settings.onfocusout&&e.not(".validate-equalTo-blur").length&&e.addClass("validate-equalTo-blur").on("blur.validate-equalTo",function(){a(c).valid()}),b===e.val()},remote:function(b,c,d,e){if(this.optional(c))return"dependency-mismatch";e="string"==typeof e&&e||"remote";var f,g,h,i=this.previousValue(c,e);return this.settings.messages[c.name]||(this.settings.messages[c.name]={}),i.originalMessage=i.originalMessage||this.settings.messages[c.name][e],this.settings.messages[c.name][e]=i.message,d="string"==typeof d&&{url:d}||d,h=a.param(a.extend({data:b},d.data)),i.old===h?i.valid:(i.old=h,f=this,this.startRequest(c),g={},g[c.name]=b,a.ajax(a.extend(!0,{mode:"abort",port:"validate"+c.name,dataType:"json",data:g,context:f.currentForm,success:function(a){var d,g,h,j=a===!0||"true"===a;f.settings.messages[c.name][e]=i.originalMessage,j?(h=f.formSubmitted,f.resetInternals(),f.toHide=f.errorsFor(c),f.formSubmitted=h,f.successList.push(c),f.invalid[c.name]=!1,f.showErrors()):(d={},g=a||f.defaultMessage(c,{method:e,parameters:b}),d[c.name]=i.message=g,f.invalid[c.name]=!0,f.showErrors(d)),i.valid=j,f.stopRequest(c,j)}},d)),"pending")}}});var c,d={};return a.ajaxPrefilter?a.ajaxPrefilter(function(a,b,c){var e=a.port;"abort"===a.mode&&(d[e]&&d[e].abort(),d[e]=c)}):(c=a.ajax,a.ajax=function(b){var e=("mode"in b?b:a.ajaxSettings).mode,f=("port"in b?b:a.ajaxSettings).port;return"abort"===e?(d[f]&&d[f].abort(),d[f]=c.apply(this,arguments),d[f]):c.apply(this,arguments)}),a});

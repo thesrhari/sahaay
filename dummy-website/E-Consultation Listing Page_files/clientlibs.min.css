@@ -1,0 +1,13 @@
+.video-subtitle{color:#333;opacity:1;font-size:14px;font-family:"Poppins";text-align:left;position:relative;bottom:-30px;cursor:pointer}
+.video-subtitle a>span{font-size:18px !important}
+.dwnld-icon{display:inline-block;position:relative;padding:15px 0 15px 35px;color:#333;left:-14px}
+.dwnld-icon:before,.dwnld-icon:after{content:' ';display:block;position:absolute;left:15px;top:52%}
+.dwnld-icon:before{width:15px;height:6px;border-style:solid;border-width:0 2px 2px}
+.dwnld-icon:after{width:0;height:0;margin-left:3px;margin-top:-7px;border-style:solid;border-width:4px 4px 0 4px;border-color:transparent;border-top-color:inherit;animation:downloadArrow 2s linear infinite;animation-play-state:paused}
+.dwnld-icon:hover:before{border-color:#000}
+.dwnld-icon:hover:after{border-top-color:#000;animation-play-state:running}
+@keyframes downloadArrow{0{margin-top:-7px;opacity:1}
+0.001%{margin-top:-15px;opacity:0}
+50%{opacity:1}
+100%{margin-top:0;opacity:0}
+}

@@ -1,0 +1,2 @@
+$(document).ready(function(){function d(){var a=$(window).width();if(420>a){a=3;var c=!0}else 768>a?(a=3,c=!0):(a=1200>a?4:6,c=!1);return{pager:!1,auto:!1,slideWidth:180,startSlide:0,speed:1E3,moveSlides:1,slideMargin:20,minSlides:a,maxSlides:a,infiniteLoop:!1,hideControlOnEnd:!0,touchEnabled:c,onSliderLoad:function(){$(".imgslide").css("visibility","visible")}}}var b;(function(){var a=d();b&&b.reloadSlider?b.reloadSlider(a):b=$(".footerImgSlider .slider").bxSlider(a)})();-1<window.location.href.indexOf("/content/mca/global/en/")&&
+$(".footerDisclaimer").hide()});

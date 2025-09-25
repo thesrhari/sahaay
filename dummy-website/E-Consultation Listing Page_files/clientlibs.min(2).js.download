@@ -1,0 +1,38 @@
+$(document).ready(function () {
+ $("#videoComponent .video-subtitle a").each(function(){ 
+     if(!$(this).attr('href')) {
+       $(this).parent().hide();
+    } else {
+       var $video= $(".video-subtitle a") 
+       if(!$(this).attr('href')) {
+       $(this).parent().hide();
+    } 
+    var $this = $(".video-subtitle .file-size");
+    var href = $video.attr('href');
+     //console.log(href);
+
+            var fileSize = '';
+            var http = new XMLHttpRequest();
+            http.open('HEAD', href, true); // true = Asynchronous
+            http.onreadystatechange = function() {
+                if (this.readyState == this.DONE) {
+                    if (this.status === 200) {
+                         var _size = this.getResponseHeader('content-length');
+                        var fSExt = new Array('Bytes', 'KB', 'MB', 'GB'),
+                        i=0;while(_size>900){_size/=1024;i++;}
+                        var exactSize = (Math.round(_size*100)/100)+' '+fSExt[i];
+                        fileSize = exactSize;
+                        console.log('fileSize = ' + fileSize);
+                        valueCallBack(fileSize); //Callback function
+                    }
+                }
+            };
+            http.send(); 
+            return ('');
+            function valueCallBack(fileSize){
+                  $this.parent().find(".file-size").html(fileSize);
+   			} 
+
+    }
+});
+});

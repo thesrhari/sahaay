@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from feedback_service import feedback_service
 
 class TextItem(BaseModel):
-    chapter: str
+    document: str
     section: str
     feedback: str
 
